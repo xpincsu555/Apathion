@@ -1,0 +1,24 @@
+{
+  "name": "example_experiment",
+  "description": "Example experiment configuration for comparing A* and ACO",
+  "algorithms": ["astar", "aco"],
+  "map_types": ["simple", "branching"],
+  "num_runs": 3,
+  "waves_per_run": 10,
+  "enemies_per_wave": 30,
+  "astar": {
+    "name": "A*-Enhanced",
+    "alpha": 0.5,
+    "beta": 0.3,
+    "diagonal_movement": true
+  },
+  "aco": {
+    "name": "ACO",
+    "num_ants": 10,
+    "evaporation_rate": 0.1,
+    "deposit_strength": 1.0,
+    "alpha": 1.0,
+    "beta": 2.0
+  }
+}
+

@@ -1,0 +1,42 @@
+[project]
+name = "apathion"
+version = "0.1.0"
+description = "Adaptive Pathfinding Enemies in Tower Defense Games"
+authors = [
+    {name = "Xiaoqin Pi"},
+    {name = "Weiyuan Ding"}
+]
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+
+dependencies = [
+    "pygame>=2.0.0",
+    "fire>=0.5.0",
+    "numpy>=1.24.0",
+    "pandas>=2.0.0",
+    "matplotlib>=3.7.0",
+]
+
+[project.optional-dependencies]
+dqn = [
+    "torch>=2.0.0",
+    "stable-baselines3>=2.0.0",
+]
+dev = [
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
+    "black>=23.0.0",
+    "ruff>=0.0.290",
+]
+
+[project.scripts]
+apathion = "apathion.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/apathion"]
+
