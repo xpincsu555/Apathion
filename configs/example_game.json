@@ -31,6 +31,15 @@
     "log_frequency": 1,
     "export_csv": true,
     "export_json": true
+  },
+  "visualization": {
+    "window_width": 1200,
+    "window_height": 800,
+    "show_grid": true,
+    "show_tower_ranges": true,
+    "show_health_bars": true,
+    "show_pheromones": true,
+    "show_paths": true
   }
 }
 
