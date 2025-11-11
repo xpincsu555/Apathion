@@ -15,6 +15,7 @@ from apathion.game.game_loop import run_game_loop
 from apathion.pathfinding.astar import AStarPathfinder
 from apathion.pathfinding.aco import ACOPathfinder
 from apathion.pathfinding.dqn import DQNPathfinder
+from apathion.pathfinding.fixed import FixedPathfinder
 from apathion.evaluation.logger import GameLogger
 from apathion.evaluation.evaluator import Evaluator
 from apathion.config import (
@@ -24,6 +25,7 @@ from apathion.config import (
     AStarConfig,
     ACOConfig,
     DQNConfig,
+    FixedConfig,
 )
 
 
@@ -50,14 +52,15 @@ class ApathionCLI:
         Run an interactive game session with pygame visualization.
         
         Args:
-            algorithm: Pathfinding algorithm to use (astar, aco, dqn, fixed)
+            algorithm: Pathfinding algorithm to use (astar, astar_basic, astar_enhanced, aco, dqn, fixed)
             map_type: Type of map (simple, branching, open_arena)
             waves: Number of waves to spawn
             enemies: Enemies per wave
             config_file: Optional path to config JSON file
         
         Example:
-            apathion play --algorithm=astar --map_type=branching --waves=10
+            apathion play --algorithm=astar_basic --map_type=branching --waves=10
+            apathion play --algorithm=astar_enhanced --map_type=branching --waves=10
         """
         print(f"Starting Apathion with {algorithm} on {map_type} map...")
         
@@ -72,13 +75,16 @@ class ApathionCLI:
             
             # Update map type
             config.map.map_type = map_type
+            config.map.baseline_path = [
+                [0, 11], [1, 11], [2, 11], [3, 11], [4, 11], [5, 11], [6, 11], [7, 11], [8, 11], [9, 11], [10, 11], [11, 11], [12, 11], [13, 11], [14, 11], [15, 11], [16, 11], [16, 10], [16, 9], [17, 9], [18, 9], [19, 9], [19, 9], [19, 8], [19, 7], [19, 6], [20, 6], [21, 6], [22, 6], [23, 6], [23, 5], [24, 5], [25, 5], [26, 5], [27, 5], [28, 5], [29, 5]
+            ]
         
         # Create map
-        game_map = self._create_map(config.map.map_type)
+        game_map = self._create_map(config.map)
         print(f"Map created: {game_map.width}x{game_map.height}")
         
-        # Create pathfinder
-        pathfinder = self._create_pathfinder(algorithm)
+        # Create pathfinder (pass config for fixed path support)
+        pathfinder = self._create_pathfinder(algorithm, game_config=config)
         print(f"Pathfinder initialized: {pathfinder.get_name()}")
         
         # Update pathfinder with map
@@ -112,6 +118,7 @@ class ApathionCLI:
         
         Args:
             algorithms: List of algorithms to compare (default: [astar, aco])
+                       Options: astar, astar_basic, astar_enhanced, aco, dqn, fixed
             maps: List of map types to test (default: [simple, branching])
             waves: Number of waves per experiment
             enemies: Enemies per wave
@@ -121,7 +128,7 @@ class ApathionCLI:
             output: Directory for results
         
         Example:
-            apathion evaluate --algorithms=astar,aco --maps=simple,branching --waves=10
+            apathion evaluate --algorithms=astar_basic,astar_enhanced --maps=simple,branching --waves=10
             apathion evaluate --preset=full_comparison
         """
         print("Starting evaluation experiments...")
@@ -153,8 +160,8 @@ class ApathionCLI:
         logger = GameLogger(output_dir=output)
         evaluator = Evaluator(logger=logger)
         
-        # Create test maps
-        test_maps = [self._create_map(mt) for mt in exp_config.map_types]
+        # Create test maps (using map_type strings for backward compatibility)
+        test_maps = [self._create_map(mt, validate_path=False) for mt in exp_config.map_types]
         
         # Run experiments for each algorithm
         for run_num in range(exp_config.num_runs):
@@ -229,71 +236,322 @@ class ApathionCLI:
     
     def analyze(
         self,
-        log_dir: str = "data/logs",
-        output: Optional[str] = None,
+        session_file: Optional[str] = None,
+        log_dir: str = "data/results",
+        plots: bool = False,
+        output_dir: str = "report_figures",
     ):
         """
-        Analyze logged results and generate visualizations.
+        Analyze experiment results and generate visualizations.
         
         Args:
-            log_dir: Directory containing log files
-            output: Optional output file for analysis report
+            session_file: Path to experiment session JSON file (finds latest if not specified)
+            log_dir: Directory containing result files (default: data/results)
+            plots: Generate visualization plots (requires matplotlib)
+            output_dir: Directory for output plots and tables
         
         Example:
-            apathion analyze --log_dir=data/logs --output=analysis_report.txt
+            apathion analyze --session_file=data/results/experiment_session_20251111_120000.json --plots
+            apathion analyze --log_dir=data/results --plots --output_dir=my_figures
         """
-        print(f"Analyzing logs from: {log_dir}")
+        import json
+        from collections import defaultdict
         
         log_path = Path(log_dir)
         if not log_path.exists():
-            print(f"Error: Log directory not found: {log_dir}")
+            print(f"Error: Results directory not found: {log_dir}")
             return
         
-        # Find CSV files
-        csv_files = list(log_path.glob("*.csv"))
-        json_files = list(log_path.glob("*.json"))
+        # Find session file
+        if session_file is None:
+            # Find the most recent session file
+            json_files = sorted(log_path.glob("experiment_session_*.json"), reverse=True)
+            if not json_files:
+                print(f"Error: No experiment session files found in {log_dir}")
+                print("Please run experiments first with: python scripts/run_experiments.py")
+                return
+            session_file = str(json_files[0])
+            print(f"Using most recent session: {Path(session_file).name}")
         
-        print(f"\nFound {len(csv_files)} CSV files and {len(json_files)} JSON files")
+        # Load session data
+        try:
+            with open(session_file, 'r') as f:
+                data = json.load(f)
+        except Exception as e:
+            print(f"Error loading session file: {e}")
+            return
         
-        if csv_files:
-            print("\nCSV files:")
-            for f in csv_files:
-                print(f"  - {f.name}")
+        results = data.get("results", [])
+        if not results:
+            print("No results found in session file.")
+            return
         
-        if json_files:
-            print("\nJSON files:")
-            for f in json_files:
-                print(f"  - {f.name}")
+        # Print summary
+        self._print_analysis_summary(results, data.get("session_id", "Unknown"))
         
-        # PLACEHOLDER: Actual analysis implementation
-        print("\n⚠️  Detailed analysis not yet implemented.")
-        print("This is a placeholder for the analysis pipeline.")
-        print("\nPlanned features:")
-        print("  - Load and parse CSV/JSON logs")
-        print("  - Calculate aggregate statistics")
-        print("  - Generate comparison plots (survival rate, path diversity, etc.)")
-        print("  - Statistical significance testing")
-        print("  - Export analysis report")
+        # Generate plots if requested
+        if plots:
+            self._generate_analysis_plots(results, output_dir)
+        
+        # Generate CSV table
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+        self._generate_analysis_table(results, output_path / "summary_table.csv")
     
-    def _create_map(self, map_type: str) -> Map:
-        """Create a map of the specified type."""
+    def _print_analysis_summary(self, results: List[dict], session_id: str):
+        """Print analysis summary to console."""
+        from collections import defaultdict
+        
+        print("\n" + "="*80)
+        print("EXPERIMENT RESULTS ANALYSIS")
+        print("="*80)
+        print(f"\nSession ID: {session_id}")
+        print(f"Total Experiments: {len(results)}")
+        
+        # Group by algorithm
+        by_algo = defaultdict(list)
+        for result in results:
+            by_algo[result["algorithm"]].append(result)
+        
+        print("\n" + "-"*80)
+        print("ALGORITHM COMPARISON")
+        print("-"*80)
+        print(f"\n{'Algorithm':<20} {'Avg Survival':<13} {'Path Div':<12} {'Avg Decision':<15} {'Max Decision':<15}")
+        print(f"{'':20} {'Rate (%)':<13} {'Index':<12} {'Time (ms)':<15} {'Time (ms)':<15}")
+        print("-"*80)
+        
+        for algo_name in sorted(by_algo.keys()):
+            algo_results = by_algo[algo_name]
+            avg_survival = sum(r["survival_rate_percent"] for r in algo_results) / len(algo_results)
+            avg_decision = sum(r["avg_decision_time_ms"] for r in algo_results) / len(algo_results)
+            max_decision = max(r["max_decision_time_ms"] for r in algo_results)
+            
+            # Get path diversity if available
+            path_div_values = []
+            for r in algo_results:
+                if "path_diversity" in r and isinstance(r["path_diversity"], dict):
+                    path_div_values.append(r["path_diversity"].get("diversity_index", 0.0))
+            avg_path_div = sum(path_div_values) / len(path_div_values) if path_div_values else 0.0
+            
+            print(f"{algo_name:<20} {avg_survival:<13.2f} {avg_path_div:<12.3f} {avg_decision:<15.4f} {max_decision:<15.4f}")
+        
+        # Evaluate success criteria
+        print("\n" + "-"*80)
+        print("SUCCESS CRITERIA EVALUATION")
+        print("-"*80)
+        print("\nTarget: ≥25% higher survival rate than fixed paths")
+        print("Target: <5 ms per enemy for real-time performance (60 FPS)\n")
+        
+        # Get fixed baseline
+        fixed_results = by_algo.get("Fixed-Path-Baseline", by_algo.get("Fixed-Path", []))
+        if fixed_results:
+            baseline_survival = sum(r["survival_rate_percent"] for r in fixed_results) / len(fixed_results)
+            target_survival = baseline_survival * 1.25
+            print(f"Baseline (Fixed) Survival Rate: {baseline_survival:.2f}%")
+            print(f"Target Survival Rate (25% improvement): {target_survival:.2f}%\n")
+            
+            for algo_name, algo_results in by_algo.items():
+                if algo_name in ["Fixed-Path-Baseline", "Fixed-Path"]:
+                    continue
+                avg_survival = sum(r["survival_rate_percent"] for r in algo_results) / len(algo_results)
+                avg_decision = sum(r["avg_decision_time_ms"] for r in algo_results) / len(algo_results)
+                
+                # Get path diversity
+                path_div_values = []
+                for r in algo_results:
+                    if "path_diversity" in r and isinstance(r["path_diversity"], dict):
+                        path_div_values.append(r["path_diversity"].get("diversity_index", 0.0))
+                avg_path_div = sum(path_div_values) / len(path_div_values) if path_div_values else 0.0
+                
+                survival_check = "✓" if avg_survival >= target_survival else "✗"
+                performance_check = "✓" if avg_decision < 5.0 else "✗"
+                diversity_check = "✓" if avg_path_div >= 0.5 else "○"  # ○ for low diversity (expected for deterministic)
+                
+                print(f"{algo_name}:")
+                print(f"  Survival Rate: {avg_survival:.2f}% {survival_check}")
+                print(f"  Path Diversity: {avg_path_div:.3f} {diversity_check}")
+                print(f"  Avg Decision Time: {avg_decision:.4f}ms {performance_check}\n")
+        else:
+            for algo_name, algo_results in by_algo.items():
+                avg_decision = sum(r["avg_decision_time_ms"] for r in algo_results) / len(algo_results)
+                performance_check = "✓" if avg_decision < 5.0 else "✗"
+                print(f"{algo_name}:")
+                print(f"  Avg Decision Time: {avg_decision:.4f}ms {performance_check}\n")
+    
+    def _generate_analysis_plots(self, results: List[dict], output_dir: str):
+        """Generate visualization plots."""
+        try:
+            import matplotlib.pyplot as plt
+            import numpy as np
+        except ImportError:
+            print("\nWarning: matplotlib not installed. Cannot generate plots.")
+            print("Install with: pip install matplotlib")
+            return
+        
+        from collections import defaultdict
+        
+        output_path = Path(output_dir)
+        output_path.mkdir(parents=True, exist_ok=True)
+        
+        # Group by algorithm
+        by_algo = defaultdict(list)
+        for result in results:
+            by_algo[result["algorithm"]].append(result)
+        
+        print(f"\nGenerating plots in: {output_path}")
+        
+        # Plot 1: Survival rates
+        algorithms = sorted(by_algo.keys())
+        avg_rates = []
+        std_rates = []
+        
+        for algo in algorithms:
+            rates = [r["survival_rate_percent"] for r in by_algo[algo]]
+            avg_rates.append(sum(rates) / len(rates))
+            std_rates.append(self._std_dev(rates))
+        
+        fig, ax = plt.subplots(figsize=(10, 6))
+        x = np.arange(len(algorithms))
+        bars = ax.bar(x, avg_rates, yerr=std_rates, capsize=5, alpha=0.8)
+        colors = ['#ff6b6b', '#4ecdc4', '#45b7d1']
+        for bar, color in zip(bars, colors[:len(bars)]):
+            bar.set_color(color)
+        ax.set_xlabel('Algorithm', fontsize=12)
+        ax.set_ylabel('Survival Rate (%)', fontsize=12)
+        ax.set_title('Enemy Survival Rate by Algorithm', fontsize=14, fontweight='bold')
+        ax.set_xticks(x)
+        ax.set_xticklabels(algorithms, rotation=15, ha='right')
+        ax.grid(axis='y', alpha=0.3)
+        plt.tight_layout()
+        plt.savefig(output_path / 'survival_rates.png', dpi=300, bbox_inches='tight')
+        plt.close()
+        print("  ✓ survival_rates.png")
+        
+        # Plot 2: Decision times
+        avg_times = []
+        max_times = []
+        for algo in algorithms:
+            results_list = by_algo[algo]
+            avg_times.append(sum(r["avg_decision_time_ms"] for r in results_list) / len(results_list))
+            max_times.append(max(r["max_decision_time_ms"] for r in results_list))
+        
+        fig, ax = plt.subplots(figsize=(10, 6))
+        x = np.arange(len(algorithms))
+        width = 0.35
+        ax.bar(x - width/2, avg_times, width, label='Average', alpha=0.8, color='#4ecdc4')
+        ax.bar(x + width/2, max_times, width, label='Maximum', alpha=0.8, color='#ff6b6b')
+        ax.axhline(y=5.0, color='red', linestyle='--', linewidth=2, label='Real-time Target (5ms)')
+        ax.set_xlabel('Algorithm', fontsize=12)
+        ax.set_ylabel('Decision Time (ms)', fontsize=12)
+        ax.set_title('Pathfinding Computation Time by Algorithm', fontsize=14, fontweight='bold')
+        ax.set_xticks(x)
+        ax.set_xticklabels(algorithms, rotation=15, ha='right')
+        ax.legend()
+        ax.grid(axis='y', alpha=0.3)
+        plt.tight_layout()
+        plt.savefig(output_path / 'decision_times.png', dpi=300, bbox_inches='tight')
+        plt.close()
+        print("  ✓ decision_times.png")
+        
+        print(f"\nPlots saved to: {output_path}")
+    
+    def _generate_analysis_table(self, results: List[dict], output_file: Path):
+        """Generate CSV table for report."""
+        from collections import defaultdict
+        
+        by_algo_map = defaultdict(list)
+        for result in results:
+            key = (result["algorithm"], result.get("map_type", "unknown"))
+            by_algo_map[key].append(result)
+        
+        with open(output_file, 'w') as f:
+            f.write("Algorithm,Map Type,Avg Survival Rate (%),Std Dev,Avg Decision Time (ms),"
+                   "Max Decision Time (ms),Sample Size\n")
+            
+            for (algo, map_type), results_list in sorted(by_algo_map.items()):
+                survival_rates = [r["survival_rate_percent"] for r in results_list]
+                decision_times = [r["avg_decision_time_ms"] for r in results_list]
+                avg_survival = sum(survival_rates) / len(survival_rates)
+                std_survival = self._std_dev(survival_rates)
+                avg_decision = sum(decision_times) / len(decision_times)
+                max_decision = max(r["max_decision_time_ms"] for r in results_list)
+                
+                f.write(f"{algo},{map_type},{avg_survival:.2f},{std_survival:.2f},"
+                       f"{avg_decision:.4f},{max_decision:.4f},{len(results_list)}\n")
+        
+        print(f"\n✓ Generated table: {output_file}")
+    
+    def _std_dev(self, values: List[float]) -> float:
+        """Calculate standard deviation."""
+        if len(values) < 2:
+            return 0.0
+        mean = sum(values) / len(values)
+        variance = sum((x - mean) ** 2 for x in values) / (len(values) - 1)
+        return variance ** 0.5
+    
+    def _create_map(self, map_config, validate_path: bool = True) -> Map:
+        """
+        Create a map of the specified type and validate baseline path if provided.
+        
+        Args:
+            map_config: MapConfig or string specifying map type
+            validate_path: Whether to validate baseline path
+            
+        Returns:
+            Map instance
+        """
+        # Handle legacy string input for backward compatibility
+        if isinstance(map_config, str):
+            map_type = map_config
+            baseline_path = None
+        else:
+            map_type = map_config.map_type
+            baseline_path = map_config.baseline_path
+        
+        # Create the map
         if map_type == "simple":
-            return Map.create_simple_map()
+            game_map = Map.create_simple_map()
         elif map_type == "branching":
-            return Map.create_branching_map()
+            game_map = Map.create_branching_map(config=map_config if not isinstance(map_config, str) else None)
         elif map_type == "open_arena":
-            return Map.create_open_arena()
+            game_map = Map.create_open_arena()
         else:
             print(f"Unknown map type '{map_type}', using simple map")
-            return Map.create_simple_map()
+            game_map = Map.create_simple_map()
+        
+        # Validate baseline path if provided
+        if baseline_path and validate_path:
+            # Convert path from list of lists to list of tuples
+            path_tuples = [(p[0], p[1]) for p in baseline_path]
+            is_valid, error_msg = game_map.validate_path(path_tuples)
+            
+            if not is_valid:
+                print(f"⚠️  Warning: Baseline path validation failed: {error_msg}")
+                print(f"   The game will continue, but the baseline path may not be usable.")
+            else:
+                print(f"✓ Baseline path validated successfully ({len(path_tuples)} points)")
+        
+        return game_map
     
     def _create_pathfinder(
         self,
         algorithm: str,
-        exp_config: Optional[ExperimentConfig] = None
+        exp_config: Optional[ExperimentConfig] = None,
+        game_config: Optional[GameConfig] = None
     ):
-        """Create a pathfinder of the specified type."""
-        if algorithm == "astar":
+        """
+        Create a pathfinder of the specified type.
+        
+        Args:
+            algorithm: Algorithm name (astar, astar_basic, astar_enhanced, aco, dqn, fixed)
+            exp_config: Optional experiment configuration
+            game_config: Optional game configuration (for fixed path baseline)
+            
+        Returns:
+            Pathfinder instance
+        """
+        if algorithm in ["astar", "astar_enhanced"]:
+            # Enhanced A* (with damage and congestion costs)
             if exp_config and hasattr(exp_config, 'astar'):
                 cfg = exp_config.astar
                 return AStarPathfinder(
@@ -301,8 +559,28 @@ class ApathionCLI:
                     alpha=cfg.alpha,
                     beta=cfg.beta,
                     diagonal_movement=cfg.diagonal_movement,
+                    use_enhanced=cfg.use_enhanced,
                 )
-            return AStarPathfinder()
+            return AStarPathfinder(
+                name="A*-Enhanced",
+                use_enhanced=True
+            )
+        
+        elif algorithm == "astar_basic":
+            # Basic A* (only g(n) and h(n))
+            if exp_config and hasattr(exp_config, 'astar'):
+                cfg = exp_config.astar
+                return AStarPathfinder(
+                    name="A*-Basic",
+                    alpha=cfg.alpha,
+                    beta=cfg.beta,
+                    diagonal_movement=cfg.diagonal_movement,
+                    use_enhanced=False,
+                )
+            return AStarPathfinder(
+                name="A*-Basic",
+                use_enhanced=False
+            )
         
         elif algorithm == "aco":
             if exp_config and hasattr(exp_config, 'aco'):
@@ -314,6 +592,7 @@ class ApathionCLI:
                     deposit_strength=cfg.deposit_strength,
                     alpha=cfg.alpha,
                     beta=cfg.beta,
+                    gamma=cfg.gamma,
                 )
             return ACOPathfinder()
         
@@ -328,6 +607,18 @@ class ApathionCLI:
                     cache_duration=cfg.cache_duration,
                 )
             return DQNPathfinder()
+        
+        elif algorithm == "fixed":
+            # Extract baseline path from game config
+            baseline_path = None
+            if game_config and game_config.map.baseline_path:
+                # Convert from list of lists to list of tuples
+                baseline_path = [(p[0], p[1]) for p in game_config.map.baseline_path]
+                print(f"  Using baseline path with {len(baseline_path)} points")
+            else:
+                print("  Warning: No baseline path provided for fixed algorithm")
+            
+            return FixedPathfinder(baseline_path=baseline_path)
         
         else:
             print(f"Unknown algorithm '{algorithm}', using A*")

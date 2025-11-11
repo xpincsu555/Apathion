@@ -78,7 +78,7 @@ class Enemy:
         
         if move_distance >= distance:
             # Reached target
-            self.position = target_position
+            self.position = (float(target_position[0]), float(target_position[1]))
             self.path_history.append(self.position)
             return True
         else:

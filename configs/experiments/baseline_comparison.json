@@ -1,0 +1,21 @@
+{
+  "name": "baseline_comparison",
+  "description": "Compare fixed baseline path vs enhanced A* algorithm on branching map",
+  "algorithms": ["fixed", "astar"],
+  "map_types": ["branching"],
+  "num_runs": 5,
+  "waves_per_run": 10,
+  "enemies_per_wave": 30,
+  "fixed": {
+    "name": "Fixed-Path-Baseline"
+  },
+  "astar": {
+    "name": "A*-Enhanced",
+    "alpha": 0.5,
+    "beta": 0.3,
+    "diagonal_movement": true,
+    "use_enhanced": true
+  },
+  "notes": "This experiment establishes baseline performance metrics and demonstrates improvement from fixed paths to adaptive pathfinding. Simple maps excluded as single-branch scenarios don't demonstrate adaptive benefits."
+}
+

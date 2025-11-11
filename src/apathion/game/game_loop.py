@@ -214,16 +214,19 @@ class GameLoop:
                 0 <= grid_pos[1] < self.game_state.map.height):
             return
         
-        # Try to place tower
-        tower = self.game_state.place_tower(grid_pos, self.selected_tower_type)
+        # Try to place tower (force=True allows placement on obstacles)
+        tower = self.game_state.place_tower(grid_pos, self.selected_tower_type, force=True)
         
         if tower:
+            print(f"Placed {self.selected_tower_type} tower at {grid_pos}")
             # Update pathfinder with new tower
             self.pathfinder.update_state(self.game_state.map, self.game_state.towers)
             
             # Recalculate paths for all active enemies
             goal = self.game_state.map.goal_positions[0]
             self.game_state.update_enemy_paths(self.pathfinder, goal)
+        else:
+            print(f"Failed to place tower at {grid_pos} - position may be occupied by another tower")
     
     def _update_game(self, delta_time: float) -> None:
         """
@@ -396,7 +399,15 @@ def run_game_loop(
     # Place initial towers if provided
     if initial_towers:
         for position, tower_type in initial_towers:
-            game_state.place_tower(position, tower_type)
+            game_state.place_tower(position, tower_type, force=True)
+    elif config.towers.initial_tower_placements:
+        # Use custom tower placements from config (force placement even on obstacles)
+        for placement in config.towers.initial_tower_placements:
+            position = tuple(placement["position"])
+            tower_type = placement.get("type", "basic")
+            result = game_state.place_tower(position, tower_type, force=True)
+            if result is None:
+                print(f"Warning: Failed to place {tower_type} tower at {position}")
     elif config.towers.initial_towers > 0:
         # Place some default towers
         # Find suitable positions (simple strategy: evenly spaced)

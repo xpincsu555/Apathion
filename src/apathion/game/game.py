@@ -96,8 +96,9 @@ class GameState:
                         break
                 continue
             
-            # Move toward waypoint
-            reached = enemy.move(waypoint, delta_time)
+            # Move toward waypoint (convert to float to ensure type consistency)
+            waypoint_float = (float(waypoint[0]), float(waypoint[1]))
+            reached = enemy.move(waypoint_float, delta_time)
             if reached:
                 enemy.advance_waypoint()
     
@@ -331,6 +332,7 @@ class GameState:
         self,
         position: Tuple[int, int],
         tower_type: str = "basic",
+        force: bool = False,
     ) -> Optional[Tower]:
         """
         Place a tower at the specified position.
@@ -338,12 +340,17 @@ class GameState:
         Args:
             position: (x, y) grid position
             tower_type: Type of tower to place
+            force: If True, allows placement on obstacles (for initial config)
             
         Returns:
             Placed tower instance, or None if placement failed
         """
-        # Check if position is valid
-        if not self.map.is_walkable(position[0], position[1]):
+        # Check if position is within bounds
+        if not (0 <= position[0] < self.map.width and 0 <= position[1] < self.map.height):
+            return None
+        
+        # Check if position is valid (unless forcing)
+        if not force and not self.map.is_walkable(position[0], position[1]):
             return None
         
         # Check if a tower already exists at this position

@@ -15,6 +15,8 @@ class MapConfig:
     height: int = 20
     map_type: str = "simple"  # "simple", "branching", "open_arena", "dynamic_maze"
     obstacle_density: float = 0.0  # 0.0 to 1.0
+    baseline_path: Optional[List[List[int]]] = None  # Optional fixed path as baseline [[x1,y1], [x2,y2], ...]
+    obstacle_regions: Optional[List[List[int]]] = None  # Rectangular obstacle regions [[x1, y1, x2, y2], ...]
     
 
 @dataclass
@@ -35,6 +37,7 @@ class TowerConfig:
     allow_dynamic_placement: bool = True
     tower_damage_multiplier: float = 1.0
     tower_range_multiplier: float = 1.0
+    initial_tower_placements: Optional[List[Dict[str, Any]]] = None  # List of {position: [x, y], type: str}
 
 
 @dataclass
@@ -44,6 +47,7 @@ class AStarConfig:
     alpha: float = 0.5  # Weight for damage cost
     beta: float = 0.3   # Weight for congestion cost
     diagonal_movement: bool = True
+    use_enhanced: bool = True  # Use enhanced mode (damage + congestion), False for basic A*
     replan_frequency: int = 10  # Frames between replanning
 
 
@@ -56,6 +60,7 @@ class ACOConfig:
     deposit_strength: float = 1.0
     alpha: float = 1.0  # Pheromone importance
     beta: float = 2.0   # Heuristic importance
+    gamma: float = 0.5  # Damage avoidance weight
 
 
 @dataclass
@@ -69,6 +74,13 @@ class DQNConfig:
     model_path: Optional[str] = None
     batch_size: int = 32
     learning_rate: float = 0.001
+
+
+@dataclass
+class FixedConfig:
+    """Configuration for Fixed path algorithm."""
+    name: str = "Fixed-Path"
+    # baseline_path is stored in MapConfig, not here
 
 
 @dataclass
@@ -212,6 +224,7 @@ class ExperimentConfig:
     astar: AStarConfig = field(default_factory=AStarConfig)
     aco: ACOConfig = field(default_factory=ACOConfig)
     dqn: DQNConfig = field(default_factory=DQNConfig)
+    fixed: FixedConfig = field(default_factory=FixedConfig)
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
@@ -223,16 +236,18 @@ class ExperimentConfig:
         astar_config = AStarConfig(**data.get("astar", {}))
         aco_config = ACOConfig(**data.get("aco", {}))
         dqn_config = DQNConfig(**data.get("dqn", {}))
+        fixed_config = FixedConfig(**data.get("fixed", {}))
         
         config = cls(
             astar=astar_config,
             aco=aco_config,
             dqn=dqn_config,
+            fixed=fixed_config,
         )
         
         # Update other fields
         for key, value in data.items():
-            if key not in ["astar", "aco", "dqn"]:
+            if key not in ["astar", "aco", "dqn", "fixed"]:
                 if hasattr(config, key):
                     setattr(config, key, value)
         
