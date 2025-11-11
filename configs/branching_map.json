@@ -1,0 +1,66 @@
+{
+  "algorithm": "astar",
+  "target_fps": 60,
+  "simulation_speed": 1.0,
+  "random_seed": null,
+  "map": {
+    "width": 30,
+    "height": 20,
+    "map_type": "branching",
+    "obstacle_density": 0.0,
+    "baseline_path": [
+      [0, 11], [1, 11], [2, 11], [3, 11], [4, 11], [5, 11], [6, 11], [7, 11], [8, 11], [9, 11], [10, 11], [11, 11], [12, 11], [13, 11], [14, 11], [15, 11], [16, 11], [16, 10], [16, 9], [17, 9], [18, 9], [19, 9], [19, 9], [19, 8], [19, 7], [19, 6], [20, 6], [21, 6], [22, 6], [23, 6], [23, 5], [24, 5], [25, 5], [26, 5], [27, 5], [28, 5], [29, 5]
+    ],
+    "obstacle_regions": [
+      [0, 0, 5, 10],
+      [5, 0, 17, 8],
+      [17, 0, 22, 5],
+      [22, 0, 30, 4],
+      [0, 12, 15, 20],
+      [15, 18, 28, 20],
+      [28, 7, 30, 20],
+      [17, 11, 26, 16],
+      [22, 8, 26, 11],
+      [24, 6, 26, 8]
+    ]
+  },
+  "enemies": {
+    "enemies_per_wave": 60,
+    "wave_count": 5,
+    "spawn_delay": 0.1,
+    "enemy_types": ["normal", "fast", "tank"],
+    "enemy_speed_multiplier": 1.0
+  },
+  "towers": {
+    "initial_towers": 4,
+    "tower_types": ["basic", "sniper"],
+    "allow_dynamic_placement": true,
+    "tower_damage_multiplier": 1.0,
+    "tower_range_multiplier": 1.0,
+    "initial_tower_placements": [
+      {"position": [6, 12], "type": "basic"},
+      {"position": [11, 7], "type": "area"},
+      {"position": [20, 7], "type": "sniper"},
+      {"position": [25, 3], "type": "rapid"}
+    ]
+  },
+  "evaluation": {
+    "log_directory": "data/logs",
+    "results_directory": "data/results",
+    "enable_frame_logging": true,
+    "enable_decision_logging": true,
+    "log_frequency": 1,
+    "export_csv": true,
+    "export_json": true
+  },
+  "visualization": {
+    "window_width": 1200,
+    "window_height": 800,
+    "show_grid": true,
+    "show_tower_ranges": true,
+    "show_health_bars": true,
+    "show_pheromones": true,
+    "show_paths": true
+  }
+}
+

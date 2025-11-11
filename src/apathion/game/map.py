@@ -138,6 +138,52 @@ class Map:
             return True
         return False
     
+    def validate_path(self, path: List[Tuple[int, int]]) -> Tuple[bool, str]:
+        """
+        Validate that a path is continuous, avoids obstacles, and goes from start to goal.
+        
+        Args:
+            path: List of (x, y) coordinates representing a path
+            
+        Returns:
+            Tuple of (is_valid, error_message). error_message is empty string if valid.
+        """
+        if not path or len(path) < 2:
+            return False, "Path must have at least 2 points"
+        
+        # Check if path starts at a spawn point
+        start = path[0]
+        if start not in self.spawn_points:
+            return False, f"Path start {start} is not a spawn point. Spawn points: {self.spawn_points}"
+        
+        # Check if path ends at a goal position
+        end = path[-1]
+        if end not in self.goal_positions:
+            return False, f"Path end {end} is not a goal position. Goal positions: {self.goal_positions}"
+        
+        # Check each point in the path
+        for i, (x, y) in enumerate(path):
+            # Check if point is within bounds
+            if not (0 <= x < self.width and 0 <= y < self.height):
+                return False, f"Point {i} at ({x}, {y}) is out of bounds"
+            
+            # Check if point is walkable (not an obstacle)
+            if not self.is_walkable(x, y):
+                return False, f"Point {i} at ({x}, {y}) is an obstacle"
+        
+        # Check if path is continuous (each point is adjacent to the next)
+        for i in range(len(path) - 1):
+            x1, y1 = path[i]
+            x2, y2 = path[i + 1]
+            dx = abs(x2 - x1)
+            dy = abs(y2 - y1)
+            
+            # Allow cardinal and diagonal moves (max distance of 1 in each direction)
+            if dx > 1 or dy > 1:
+                return False, f"Path is not continuous: ({x1}, {y1}) to ({x2}, {y2}) is too far"
+        
+        return True, ""
+    
     def to_dict(self) -> Dict[str, Any]:
         """
         Convert map to a dictionary for logging.
@@ -173,9 +219,16 @@ class Map:
         )
     
     @classmethod
-    def create_branching_map(cls) -> "Map":
+    def create_branching_map(cls, config: Optional[Any] = None) -> "Map":
         """
         Create a map with branching paths (2-3 route choices).
+        
+        Creates a map with diagonal obstacle stripes (shadow regions) similar to the reference image.
+        The obstacles form diagonal bands from upper-left to lower-right, creating multiple
+        distinct path options (upper, middle, lower routes).
+        
+        Args:
+            config: Optional MapConfig object with obstacle_regions
         
         Returns:
             New Map instance with branching layout
@@ -183,17 +236,39 @@ class Map:
         width, height = 30, 20
         obstacles = []
         
-        # Create walls to force branching
-        # Placeholder for actual branching logic
-        for y in range(5, 15):
-            obstacles.append((width // 2, y))
+        # Default obstacle regions (can be overridden by config)
+        default_obstacle_regions = [
+            (0, 0, 5, 10),
+            (5, 0, 17, 8),
+            (17, 0, 22, 5),
+            (22, 0, 30, 4),
+            (0, 12, 15, 20),
+            (15, 18, 28, 20),
+            (28, 7, 30, 20),
+            (17, 11, 26, 16),
+            (22, 8, 26, 11),
+            (24, 6, 26, 8),
+        ]
+        
+        # Use obstacle regions from config if provided, otherwise use defaults
+        if config and hasattr(config, 'obstacle_regions') and config.obstacle_regions:
+            obstacle_regions = [tuple(region) for region in config.obstacle_regions]
+        else:
+            obstacle_regions = default_obstacle_regions
+        
+        # Generate obstacles for each rectangular region
+        for x1, y1, x2, y2 in obstacle_regions:
+            for x in range(x1, x2):
+                for y in range(y1, y2):
+                    if 0 <= x < width and 0 <= y < height:
+                        obstacles.append((x, y))
         
         return cls(
             width=width,
             height=height,
             obstacles=obstacles,
-            spawn_points=[(0, height // 2)],
-            goal_positions=[(width - 1, height // 2)],
+            spawn_points=[(0, 11)],
+            goal_positions=[(29, 5)],
         )
     
     @classmethod

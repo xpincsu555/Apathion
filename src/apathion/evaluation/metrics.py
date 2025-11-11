@@ -112,11 +112,19 @@ def path_diversity(
     
     # Calculate Shannon entropy
     total_paths = len(path_strings)
+    unique_path_count = len(path_counts)
+    
+    # If only one unique path, diversity is 0
+    if unique_path_count <= 1:
+        shannon_entropy = 0.0
+        diversity_index = 0.0
+    else:
     probabilities = [count / total_paths for count in path_counts.values()]
     shannon_entropy = -sum(p * np.log2(p) if p > 0 else 0 for p in probabilities)
     
     # Diversity index (normalized entropy)
-    max_entropy = np.log2(len(path_counts)) if len(path_counts) > 1 else 1.0
+        # Maximum entropy occurs when all paths are equally likely
+        max_entropy = np.log2(unique_path_count)
     diversity_index = shannon_entropy / max_entropy if max_entropy > 0 else 0.0
     
     return {

@@ -1,0 +1,27 @@
+{
+  "name": "path_diversity_analysis",
+  "description": "Compare path diversity between deterministic A* and stochastic ACO on branching maps",
+  "algorithms": ["astar", "aco"],
+  "map_types": ["branching"],
+  "num_runs": 10,
+  "waves_per_run": 5,
+  "enemies_per_wave": 20,
+  "astar": {
+    "name": "A*-Enhanced",
+    "alpha": 0.5,
+    "beta": 0.3,
+    "diagonal_movement": true,
+    "use_enhanced": true
+  },
+  "aco": {
+    "name": "ACO-Swarm",
+    "num_ants": 10,
+    "evaporation_rate": 0.01,
+    "deposit_strength": 1.0,
+    "alpha": 1.0,
+    "beta": 1.5,
+    "gamma": 3.5
+  },
+  "notes": "Demonstrates ACO's ability to generate diverse paths compared to A*'s deterministic single-path solution. Shows emergent swarm behavior and strategic depth."
+}
+

@@ -1,0 +1,30 @@
+{
+  "name": "performance_stress_test",
+  "description": "Test computational performance and real-time capability with high enemy counts",
+  "algorithms": ["fixed", "astar", "aco"],
+  "map_types": ["branching"],
+  "num_runs": 3,
+  "waves_per_run": 5,
+  "enemies_per_wave": 100,
+  "fixed": {
+    "name": "Fixed-Path-Baseline"
+  },
+  "astar": {
+    "name": "A*-Enhanced",
+    "alpha": 0.5,
+    "beta": 0.3,
+    "diagonal_movement": true,
+    "use_enhanced": true
+  },
+  "aco": {
+    "name": "ACO-Swarm",
+    "num_ants": 10,
+    "evaporation_rate": 0.01,
+    "deposit_strength": 1.0,
+    "alpha": 1.0,
+    "beta": 1.5,
+    "gamma": 3.5
+  },
+  "notes": "Tests whether algorithms maintain real-time performance (< 5ms per decision for 60 FPS) with large enemy counts on branching map. Critical for meeting performance requirements."
+}
+

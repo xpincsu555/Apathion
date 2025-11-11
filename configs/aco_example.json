@@ -1,0 +1,47 @@
+{
+  "algorithm": "aco",
+  "map": {
+    "map_type": "branching",
+    "width": 40,
+    "height": 30
+  },
+  "enemies": {
+    "wave_count": 5,
+    "enemies_per_wave": 15,
+    "spawn_interval": 1.5,
+    "base_speed": 1.5,
+    "base_health": 100.0,
+    "speed_scaling": 1.1,
+    "health_scaling": 1.2
+  },
+  "towers": {
+    "initial_towers": [
+      {
+        "position": [15, 10],
+        "tower_type": "basic",
+        "damage": 20.0,
+        "range": 4.0,
+        "attack_rate": 1.0
+      },
+      {
+        "position": [25, 10],
+        "tower_type": "sniper",
+        "damage": 50.0,
+        "range": 8.0,
+        "attack_rate": 0.5
+      }
+    ]
+  },
+  "pathfinding": {
+    "aco": {
+      "name": "ACO-Custom",
+      "num_ants": 15,
+      "evaporation_rate": 0.15,
+      "deposit_strength": 1.5,
+      "alpha": 1.5,
+      "beta": 2.0,
+      "gamma": 1.0
+    }
+  }
+}
+

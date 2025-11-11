@@ -170,6 +170,9 @@ class GameRenderer:
         """Draw the game map with grid, obstacles, spawn, and goal."""
         game_map = game_state.map
         
+        # Create a set of tower positions for quick lookup
+        tower_positions = {tower.position for tower in game_state.towers}
+        
         # Draw grid cells
         for y in range(game_map.height):
             for x in range(game_map.width):
@@ -181,7 +184,10 @@ class GameRenderer:
                 )
                 
                 # Determine cell color
-                if game_map.grid[y, x] == 1:  # Obstacle
+                if (x, y) in tower_positions:
+                    # Tower cells get a much lighter, distinct background for visibility
+                    color = (70, 80, 100)
+                elif game_map.grid[y, x] == 1:  # Obstacle (but not a tower)
                     color = self.COLOR_OBSTACLE
                 else:  # Walkable
                     color = self.COLOR_WALKABLE
@@ -296,25 +302,39 @@ class GameRenderer:
             x = self.offset_x + int(tower.position[0] * self.cell_size)
             y = self.offset_y + int(tower.position[1] * self.cell_size)
             
-            # Draw tower as a blue square
+            # Draw tower with high visibility - much brighter and larger
+            padding = max(1, self.cell_size // 8)
             tower_rect = pygame.Rect(
-                x + self.cell_size // 4,
-                y + self.cell_size // 4,
-                self.cell_size // 2,
-                self.cell_size // 2
+                x + padding,
+                y + padding,
+                self.cell_size - 2 * padding,
+                self.cell_size - 2 * padding
             )
-            pygame.draw.rect(self.screen, self.COLOR_TOWER, tower_rect)
-            pygame.draw.rect(self.screen, (100, 150, 255), tower_rect, 2)
             
-            # Draw tower type indicator in debug mode
-            if self.mode == VisualizationMode.DEBUG:
+            # Draw filled tower with bright blue color
+            pygame.draw.rect(self.screen, (80, 150, 255), tower_rect)
+            
+            # Draw bright border for extra visibility
+            border_width = max(2, self.cell_size // 15)
+            pygame.draw.rect(self.screen, (150, 200, 255), tower_rect, border_width)
+            
+            # Draw tower type indicator in normal mode too for visibility
+            if self.mode != VisualizationMode.MINIMAL:
                 type_char = tower.tower_type.value[0].upper()
-                text = self.font_small.render(type_char, True, self.COLOR_TEXT)
+                text = self.font_small.render(type_char, True, (255, 255, 255))
                 text_rect = text.get_rect(center=tower_rect.center)
+                
+                # Draw text shadow for better readability
+                shadow_offset = 1
+                shadow_text = self.font_small.render(type_char, True, (0, 0, 0))
+                shadow_rect = text_rect.move(shadow_offset, shadow_offset)
+                self.screen.blit(shadow_text, shadow_rect)
                 self.screen.blit(text, text_rect)
     
     def _draw_enemies(self, game_state: GameState) -> None:
-        """Draw all enemies."""
+        """Draw all enemies with different shapes based on type."""
+        from apathion.game.enemy import EnemyType
+        
         for enemy in game_state.enemies:
             if not enemy.is_alive:
                 continue
@@ -331,14 +351,51 @@ class GameRenderer:
                 health_ratio
             )
             
-            # Draw enemy as a circle
-            center = (
-                x + self.cell_size // 2,
-                y + self.cell_size // 2
-            )
-            radius = self.cell_size // 3
-            pygame.draw.circle(self.screen, color, center, radius)
-            pygame.draw.circle(self.screen, (255, 255, 255), center, radius, 1)
+            # Center position
+            center_x = x + self.cell_size // 2
+            center_y = y + self.cell_size // 2
+            
+            # Draw enemy with different shapes based on type
+            if enemy.enemy_type == EnemyType.NORMAL:
+                # Circle for normal enemies
+                radius = self.cell_size // 3
+                pygame.draw.circle(self.screen, color, (center_x, center_y), radius)
+                pygame.draw.circle(self.screen, (255, 255, 255), (center_x, center_y), radius, 1)
+            
+            elif enemy.enemy_type == EnemyType.FAST:
+                # Triangle for fast enemies (pointing down/forward)
+                size = self.cell_size // 2
+                points = [
+                    (center_x, center_y - size // 2),  # Top
+                    (center_x - size // 2, center_y + size // 2),  # Bottom left
+                    (center_x + size // 2, center_y + size // 2),  # Bottom right
+                ]
+                pygame.draw.polygon(self.screen, color, points)
+                pygame.draw.polygon(self.screen, (255, 255, 255), points, 2)
+            
+            elif enemy.enemy_type == EnemyType.TANK:
+                # Square for tank enemies
+                size = self.cell_size // 2
+                rect = pygame.Rect(
+                    center_x - size // 2,
+                    center_y - size // 2,
+                    size,
+                    size
+                )
+                pygame.draw.rect(self.screen, color, rect)
+                pygame.draw.rect(self.screen, (255, 255, 255), rect, 2)
+            
+            elif enemy.enemy_type == EnemyType.LEADER:
+                # Diamond for leader enemies
+                size = self.cell_size // 2
+                points = [
+                    (center_x, center_y - size // 2),  # Top
+                    (center_x + size // 2, center_y),  # Right
+                    (center_x, center_y + size // 2),  # Bottom
+                    (center_x - size // 2, center_y),  # Left
+                ]
+                pygame.draw.polygon(self.screen, color, points)
+                pygame.draw.polygon(self.screen, (255, 255, 255), points, 2)
             
             # Draw health bar in normal/debug mode
             if self.mode != VisualizationMode.MINIMAL and self.config.show_health_bars:
