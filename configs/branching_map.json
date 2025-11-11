@@ -25,9 +25,9 @@
     ]
   },
   "enemies": {
-    "enemies_per_wave": 60,
+    "enemies_per_wave": 50,
     "wave_count": 5,
-    "spawn_delay": 0.1,
+    "spawn_delay": 0.9,
     "enemy_types": ["normal", "fast", "tank"],
     "enemy_speed_multiplier": 1.0
   },
