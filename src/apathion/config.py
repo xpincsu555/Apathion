@@ -72,6 +72,18 @@ class DQNConfig:
 
 
 @dataclass
+class VisualizationConfig:
+    """Configuration for pygame visualization."""
+    window_width: int = 1200
+    window_height: int = 800
+    show_grid: bool = True
+    show_tower_ranges: bool = True
+    show_health_bars: bool = True
+    show_pheromones: bool = True  # For ACO visualization
+    show_paths: bool = True  # Show enemy paths in debug mode
+
+
+@dataclass
 class EvaluationConfig:
     """Configuration for evaluation and logging."""
     log_directory: str = "data/logs"
@@ -91,6 +103,7 @@ class GameConfig:
     enemies: EnemyConfig = field(default_factory=EnemyConfig)
     towers: TowerConfig = field(default_factory=TowerConfig)
     evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
+    visualization: VisualizationConfig = field(default_factory=VisualizationConfig)
     
     # Game settings
     target_fps: int = 60
@@ -112,6 +125,7 @@ class GameConfig:
         enemy_config = EnemyConfig(**data.get("enemies", {}))
         tower_config = TowerConfig(**data.get("towers", {}))
         eval_config = EvaluationConfig(**data.get("evaluation", {}))
+        vis_config = VisualizationConfig(**data.get("visualization", {}))
         
         # Create main config
         config = cls(
@@ -119,11 +133,12 @@ class GameConfig:
             enemies=enemy_config,
             towers=tower_config,
             evaluation=eval_config,
+            visualization=vis_config,
         )
         
         # Update other fields
         for key, value in data.items():
-            if key not in ["map", "enemies", "towers", "evaluation"]:
+            if key not in ["map", "enemies", "towers", "evaluation", "visualization"]:
                 if hasattr(config, key):
                     setattr(config, key, value)
         

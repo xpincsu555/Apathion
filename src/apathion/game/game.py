@@ -43,6 +43,12 @@ class GameState:
         self.enemies_escaped = 0
         self.is_running = False
         self._last_update_time = time.time()
+        
+        # Wave spawning state
+        self._pending_spawns: List[Dict[str, Any]] = []
+        self._next_spawn_time = 0.0
+        self._current_wave_size = 0
+        self._current_wave_spawned = 0
     
     def update(self, delta_time: float) -> None:
         """
@@ -161,6 +167,166 @@ class GameState:
         self.wave_number += 1
         return spawned
     
+    def prepare_wave_with_delay(
+        self,
+        num_enemies: int = 10,
+        enemy_types: Optional[List[EnemyType]] = None,
+        spawn_delay: float = 1.0,
+    ) -> None:
+        """
+        Prepare a wave of enemies to spawn with delays.
+        
+        Args:
+            num_enemies: Number of enemies to spawn
+            enemy_types: List of enemy types to spawn (random if None)
+            spawn_delay: Delay in seconds between each enemy spawn
+        """
+        if enemy_types is None:
+            enemy_types = [EnemyType.NORMAL] * num_enemies
+        
+        self._pending_spawns.clear()
+        self._current_wave_size = num_enemies
+        self._current_wave_spawned = 0
+        
+        spawn_point = self.map.spawn_points[0]
+        
+        for i in range(num_enemies):
+            enemy_id = f"E{self.wave_number:03d}_{self.enemies_spawned + i:04d}"
+            enemy_type = enemy_types[i] if i < len(enemy_types) else EnemyType.NORMAL
+            
+            self._pending_spawns.append({
+                "id": enemy_id,
+                "type": enemy_type,
+                "position": spawn_point,
+                "spawn_time": self.game_time + i * spawn_delay,
+            })
+        
+        self._next_spawn_time = self.game_time
+        self.wave_number += 1
+    
+    def update_wave_spawning(self, delta_time: float) -> List[Enemy]:
+        """
+        Update wave spawning and spawn pending enemies.
+        
+        Args:
+            delta_time: Time elapsed since last update
+            
+        Returns:
+            List of newly spawned enemies this frame
+        """
+        spawned = []
+        
+        while self._pending_spawns and self._pending_spawns[0]["spawn_time"] <= self.game_time:
+            spawn_info = self._pending_spawns.pop(0)
+            
+            enemy_type = spawn_info["type"]
+            if enemy_type == EnemyType.FAST:
+                enemy = Enemy.create_fast(spawn_info["id"], spawn_info["position"])
+            elif enemy_type == EnemyType.TANK:
+                enemy = Enemy.create_tank(spawn_info["id"], spawn_info["position"])
+            else:
+                enemy = Enemy.create_normal(spawn_info["id"], spawn_info["position"])
+            
+            self.enemies.append(enemy)
+            spawned.append(enemy)
+            self.enemies_spawned += 1
+            self._current_wave_spawned += 1
+        
+        return spawned
+    
+    def is_wave_active(self) -> bool:
+        """
+        Check if a wave is currently active (enemies present or pending).
+        
+        Returns:
+            True if wave is active
+        """
+        return len(self.enemies) > 0 or len(self._pending_spawns) > 0
+    
+    def is_wave_complete(self) -> bool:
+        """
+        Check if current wave is complete (all enemies spawned and cleared).
+        
+        Returns:
+            True if wave is complete
+        """
+        return len(self._pending_spawns) == 0 and len(self.enemies) == 0
+    
+    def _filter_path_from_position(
+        self,
+        path: List[Tuple[int, int]],
+        current_position: Tuple[float, float]
+    ) -> List[Tuple[int, int]]:
+        """
+        Filter a path to remove waypoints that the enemy is currently on or has already passed.
+        
+        This prevents enemies from backtracking when replanning. When a tower is placed and
+        paths need to be recalculated, enemies should continue from their current position,
+        not go back to their starting grid cell.
+        
+        Args:
+            path: Full path from pathfinder (includes start position)
+            current_position: Enemy's actual (x, y) position (can have fractional coordinates)
+            
+        Returns:
+            Filtered path starting from the next waypoint ahead of current position
+        """
+        if not path:
+            return path
+        
+        # Get the enemy's current grid cell
+        enemy_grid_x = int(current_position[0])
+        enemy_grid_y = int(current_position[1])
+        
+        # Find the first waypoint that's not in the enemy's current grid cell
+        # or in a cell the enemy has already passed through
+        for i, waypoint in enumerate(path):
+            # Skip waypoints that are in the same grid cell as the enemy
+            if waypoint == (enemy_grid_x, enemy_grid_y):
+                continue
+            
+            # Calculate distance to this waypoint
+            dx = waypoint[0] - current_position[0]
+            dy = waypoint[1] - current_position[1]
+            distance = (dx ** 2 + dy ** 2) ** 0.5
+            
+            # Skip waypoints that are too close (enemy is effectively already there)
+            # Use a threshold slightly larger than diagonal distance within a cell (sqrt(2) ≈ 1.41)
+            if distance < 0.5:
+                continue
+            
+            # This waypoint is far enough ahead, start from here
+            return path[i:]
+        
+        # If all waypoints are too close or in current cell, return the last waypoint
+        # (the goal) so the enemy has something to move toward
+        if path:
+            return [path[-1]]
+        return path
+    
+    def update_enemy_paths(self, pathfinder, goal: Tuple[int, int]) -> None:
+        """
+        Recalculate paths for all active enemies from their current position.
+        
+        When an enemy needs to replan (e.g., due to tower placement), we calculate
+        a new path from their current position. However, we need to skip waypoints
+        that are at or behind the enemy's current position to prevent backtracking.
+        
+        Args:
+            pathfinder: Pathfinder instance to use
+            goal: Goal position
+        """
+        for enemy in self.enemies:
+            if enemy.is_alive and not enemy.reached_goal:
+                start = (int(enemy.position[0]), int(enemy.position[1]))
+                path = pathfinder.find_path(start, goal, enemy_id=enemy.id)
+                
+                # Skip waypoints that the enemy has already passed
+                # The pathfinder returns a path starting from 'start', but the enemy
+                # may have already moved past that grid position
+                filtered_path = self._filter_path_from_position(path, enemy.position)
+                enemy.set_path(filtered_path)
+    
     def place_tower(
         self,
         position: Tuple[int, int],
@@ -241,6 +407,10 @@ class GameState:
         self.enemies_defeated = 0
         self.enemies_escaped = 0
         self.is_running = False
+        self._pending_spawns.clear()
+        self._next_spawn_time = 0.0
+        self._current_wave_size = 0
+        self._current_wave_spawned = 0
     
     def is_game_over(self) -> bool:
         """

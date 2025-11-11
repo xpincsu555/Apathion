@@ -11,6 +11,7 @@ from pathlib import Path
 
 from apathion.game.map import Map
 from apathion.game.game import GameState
+from apathion.game.game_loop import run_game_loop
 from apathion.pathfinding.astar import AStarPathfinder
 from apathion.pathfinding.aco import ACOPathfinder
 from apathion.pathfinding.dqn import DQNPathfinder
@@ -46,7 +47,7 @@ class ApathionCLI:
         config_file: Optional[str] = None,
     ):
         """
-        Run an interactive game session.
+        Run an interactive game session with pygame visualization.
         
         Args:
             algorithm: Pathfinding algorithm to use (astar, aco, dqn, fixed)
@@ -68,54 +69,32 @@ class ApathionCLI:
             config.algorithm = algorithm
             config.enemies.wave_count = waves
             config.enemies.enemies_per_wave = enemies
+            
+            # Update map type
+            config.map.map_type = map_type
         
         # Create map
-        game_map = self._create_map(map_type)
+        game_map = self._create_map(config.map.map_type)
         print(f"Map created: {game_map.width}x{game_map.height}")
         
         # Create pathfinder
         pathfinder = self._create_pathfinder(algorithm)
         print(f"Pathfinder initialized: {pathfinder.get_name()}")
         
-        # Create game state
-        game = GameState(game_map)
+        # Update pathfinder with map
+        pathfinder.update_state(game_map, [])
         
-        # Place some initial towers (placeholder positions)
-        game.place_tower((10, 10), "basic")
-        game.place_tower((15, 10), "basic")
-        print(f"Towers placed: {len(game.towers)}")
+        # Run pygame game loop
+        print(f"\nStarting game with {waves} waves of {enemies} enemies each")
+        print(f"Controls:")
+        print(f"  Click: Place tower")
+        print(f"  T: Change tower type")
+        print(f"  Space: Pause/Resume")
+        print(f"  Tab: Toggle visualization mode")
+        print(f"  ESC: Quit")
+        print(f"\nLaunching game window...")
         
-        # Update pathfinder with game state
-        pathfinder.update_state(game.map, game.towers)
-        
-        # Spawn and run waves
-        for wave_num in range(waves):
-            print(f"\nWave {wave_num + 1}/{waves}")
-            enemies_list = game.spawn_wave(num_enemies=enemies)
-            print(f"  Spawned {len(enemies_list)} enemies")
-            
-            # Assign paths
-            goal = game.map.goal_positions[0]
-            for enemy in enemies_list:
-                start = (int(enemy.position[0]), int(enemy.position[1]))
-                path = pathfinder.find_path(start, goal, enemy_id=enemy.id)
-                enemy.set_path(path)
-            
-            print(f"  Paths calculated")
-            
-            # Placeholder: In a real implementation, would run game simulation here
-            # For now, just report that wave completed
-            print(f"  Wave {wave_num + 1} completed")
-        
-        # Show final statistics
-        stats = game.get_statistics()
-        print(f"\n{'-' * 50}")
-        print(f"Game Statistics:")
-        print(f"  Total enemies spawned: {stats['enemies_spawned']}")
-        print(f"  Enemies defeated: {stats['enemies_defeated']}")
-        print(f"  Enemies escaped: {stats['enemies_escaped']}")
-        print(f"  Survival rate: {stats['survival_rate']:.1f}%")
-        print(f"{'-' * 50}")
+        run_game_loop(config, game_map, pathfinder)
     
     def evaluate(
         self,
