@@ -8,6 +8,7 @@ import time
 from apathion.game.map import Map
 from apathion.game.enemy import Enemy, EnemyType
 from apathion.game.tower import Tower
+from apathion.game.bullet import Bullet, HitEffect
 
 
 class GameState:
@@ -36,6 +37,8 @@ class GameState:
         self.map = game_map or Map.create_simple_map()
         self.enemies: List[Enemy] = []
         self.towers: List[Tower] = []
+        self.bullets: List[Bullet] = []
+        self.hit_effects: List[HitEffect] = []
         self.wave_number = 0
         self.game_time = 0.0
         self.enemies_spawned = 0
@@ -65,8 +68,14 @@ class GameState:
         # Update enemies
         self._update_enemies(delta_time)
         
-        # Process tower attacks
+        # Process tower attacks (spawns bullets)
         self._process_tower_attacks()
+        
+        # Update bullets
+        self._update_bullets(delta_time)
+        
+        # Update hit effects
+        self._update_hit_effects(delta_time)
         
         # Remove dead enemies
         self._cleanup_dead_enemies()
@@ -103,7 +112,7 @@ class GameState:
                 enemy.advance_waypoint()
     
     def _process_tower_attacks(self) -> None:
-        """Process attacks from all towers."""
+        """Process attacks from all towers by spawning bullets."""
         current_time = self.game_time
         
         for tower in self.towers:
@@ -113,14 +122,87 @@ class GameState:
                     continue
                 
                 if tower.can_attack(enemy.position, current_time):
+                    # Record attack on tower
                     damage = tower.attack(current_time)
-                    is_alive = enemy.take_damage(damage)
                     
-                    if not is_alive:
-                        tower.record_kill()
-                        self.enemies_defeated += 1
+                    # Calculate tower center position in grid coordinates (with 0.5 offset for center)
+                    tower_grid_x = tower.position[0] + 0.5
+                    tower_grid_y = tower.position[1] + 0.5
+                    
+                    # Create bullet (positions in grid coordinates, speed in grid cells per second)
+                    bullet = Bullet(
+                        position=(tower_grid_x, tower_grid_y),
+                        target_enemy_id=enemy.id,
+                        damage=damage,
+                        speed=8.0  # grid cells per second (fast enough to look good)
+                    )
+                    self.bullets.append(bullet)
                     
                     break  # Tower attacks one enemy per attack cycle
+    
+    def _update_bullets(self, delta_time: float) -> None:
+        """Update all bullets and handle collisions."""
+        bullets_to_remove = []
+        
+        for bullet in self.bullets:
+            # Find the target enemy
+            target_enemy = None
+            for enemy in self.enemies:
+                if enemy.id == bullet.target_enemy_id and enemy.is_alive:
+                    target_enemy = enemy
+                    break
+            
+            # If target is dead or missing, remove bullet
+            if target_enemy is None:
+                bullets_to_remove.append(bullet)
+                continue
+            
+            # Target enemy position (already in grid coordinates)
+            target_pos = target_enemy.position
+            
+            # Update bullet position (moves in grid coordinate space)
+            reached = bullet.update(target_pos, delta_time)
+            
+            # If bullet reached target, deal damage and create hit effect
+            if reached:
+                is_alive = target_enemy.take_damage(bullet.damage)
+                
+                if not is_alive:
+                    # Find the tower that shot this bullet and record kill
+                    for tower in self.towers:
+                        if tower.last_attack_time == self.game_time or \
+                           abs(tower.last_attack_time - self.game_time) < 0.1:
+                            tower.record_kill()
+                            break
+                    self.enemies_defeated += 1
+                
+                # Create hit effect at enemy position (in grid coordinates)
+                # Note: hit effect sprite will be loaded by renderer
+                self.hit_effects.append(HitEffect(
+                    position=bullet.position,
+                    sprite=None,  # Will be set by renderer
+                    duration=0.3
+                ))
+                
+                bullets_to_remove.append(bullet)
+        
+        # Remove bullets that hit or lost their target
+        for bullet in bullets_to_remove:
+            if bullet in self.bullets:
+                self.bullets.remove(bullet)
+    
+    def _update_hit_effects(self, delta_time: float) -> None:
+        """Update all hit effects and remove expired ones."""
+        effects_to_remove = []
+        
+        for effect in self.hit_effects:
+            still_active = effect.update(delta_time)
+            if not still_active:
+                effects_to_remove.append(effect)
+        
+        for effect in effects_to_remove:
+            if effect in self.hit_effects:
+                self.hit_effects.remove(effect)
     
     def _cleanup_dead_enemies(self) -> None:
         """Remove dead or escaped enemies from active list."""
@@ -408,6 +490,8 @@ class GameState:
         """Reset game state."""
         self.enemies.clear()
         self.towers.clear()
+        self.bullets.clear()
+        self.hit_effects.clear()
         self.wave_number = 0
         self.game_time = 0.0
         self.enemies_spawned = 0
