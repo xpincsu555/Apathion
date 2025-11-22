@@ -117,6 +117,12 @@ class GameConfig:
     evaluation: EvaluationConfig = field(default_factory=EvaluationConfig)
     visualization: VisualizationConfig = field(default_factory=VisualizationConfig)
     
+    # Algorithm-specific configurations
+    astar: AStarConfig = field(default_factory=AStarConfig)
+    aco: ACOConfig = field(default_factory=ACOConfig)
+    dqn: DQNConfig = field(default_factory=DQNConfig)
+    fixed: FixedConfig = field(default_factory=FixedConfig)
+    
     # Game settings
     target_fps: int = 60
     simulation_speed: float = 1.0
@@ -139,6 +145,12 @@ class GameConfig:
         eval_config = EvaluationConfig(**data.get("evaluation", {}))
         vis_config = VisualizationConfig(**data.get("visualization", {}))
         
+        # Extract algorithm-specific configs
+        astar_config = AStarConfig(**data.get("astar", {}))
+        aco_config = ACOConfig(**data.get("aco", {}))
+        dqn_config = DQNConfig(**data.get("dqn", {}))
+        fixed_config = FixedConfig(**data.get("fixed", {}))
+        
         # Create main config
         config = cls(
             map=map_config,
@@ -146,11 +158,16 @@ class GameConfig:
             towers=tower_config,
             evaluation=eval_config,
             visualization=vis_config,
+            astar=astar_config,
+            aco=aco_config,
+            dqn=dqn_config,
+            fixed=fixed_config,
         )
         
         # Update other fields
         for key, value in data.items():
-            if key not in ["map", "enemies", "towers", "evaluation", "visualization"]:
+            if key not in ["map", "enemies", "towers", "evaluation", "visualization", 
+                          "astar", "aco", "dqn", "fixed"]:
                 if hasattr(config, key):
                     setattr(config, key, value)
         

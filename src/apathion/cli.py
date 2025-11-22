@@ -552,8 +552,13 @@ class ApathionCLI:
         """
         if algorithm in ["astar", "astar_enhanced"]:
             # Enhanced A* (with damage and congestion costs)
+            cfg = None
             if exp_config and hasattr(exp_config, 'astar'):
                 cfg = exp_config.astar
+            elif game_config and hasattr(game_config, 'astar'):
+                cfg = game_config.astar
+            
+            if cfg:
                 return AStarPathfinder(
                     name=cfg.name,
                     alpha=cfg.alpha,
@@ -568,8 +573,13 @@ class ApathionCLI:
         
         elif algorithm == "astar_basic":
             # Basic A* (only g(n) and h(n))
+            cfg = None
             if exp_config and hasattr(exp_config, 'astar'):
                 cfg = exp_config.astar
+            elif game_config and hasattr(game_config, 'astar'):
+                cfg = game_config.astar
+            
+            if cfg:
                 return AStarPathfinder(
                     name="A*-Basic",
                     alpha=cfg.alpha,
@@ -583,8 +593,14 @@ class ApathionCLI:
             )
         
         elif algorithm == "aco":
+            # Try exp_config first, then game_config
+            cfg = None
             if exp_config and hasattr(exp_config, 'aco'):
                 cfg = exp_config.aco
+            elif game_config and hasattr(game_config, 'aco'):
+                cfg = game_config.aco
+            
+            if cfg:
                 return ACOPathfinder(
                     name=cfg.name,
                     num_ants=cfg.num_ants,
@@ -597,8 +613,14 @@ class ApathionCLI:
             return ACOPathfinder()
         
         elif algorithm == "dqn":
+            # Try exp_config first, then game_config
+            cfg = None
             if exp_config and hasattr(exp_config, 'dqn'):
                 cfg = exp_config.dqn
+            elif game_config and hasattr(game_config, 'dqn'):
+                cfg = game_config.dqn
+            
+            if cfg:
                 return DQNPathfinder(
                     name=cfg.name,
                     state_size=cfg.state_size,
