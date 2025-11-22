@@ -402,7 +402,13 @@ class GameState:
         for enemy in self.enemies:
             if enemy.is_alive and not enemy.reached_goal:
                 start = (int(enemy.position[0]), int(enemy.position[1]))
-                path = pathfinder.find_path(start, goal, enemy_id=enemy.id)
+                path = pathfinder.find_path(
+                    start, goal,
+                    enemy_id=enemy.id,
+                    health=enemy.health,
+                    max_health=enemy.max_health,
+                    enemy_type=enemy.enemy_type
+                )
                 
                 # Skip waypoints that the enemy has already passed
                 # The pathfinder returns a path starting from 'start', but the enemy

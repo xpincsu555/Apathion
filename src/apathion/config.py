@@ -67,13 +67,37 @@ class ACOConfig:
 class DQNConfig:
     """Configuration for DQN pathfinding algorithm."""
     name: str = "DQN"
-    state_size: int = 64
-    action_size: int = 8
+    state_size: int = 32  # Feature vector size (updated to include directional walkability)
+    action_size: int = 8  # 8 directional movements
     use_cache: bool = True
     cache_duration: int = 5
     model_path: Optional[str] = None
+    plan_full_path: bool = True  # If True, generate complete path; if False, step-by-step
+    
+    # Training hyperparameters
     batch_size: int = 32
-    learning_rate: float = 0.001
+    learning_rate: float = 0.0003
+    gamma: float = 0.99  # Discount factor
+    buffer_size: int = 100000  # Replay buffer size
+    learning_starts: int = 1000  # Steps before learning starts
+    target_update_interval: int = 1000  # Steps between target network updates
+    train_freq: int = 4  # Update frequency
+    gradient_steps: int = 1  # Gradient steps per update
+    
+    # Exploration parameters
+    exploration_fraction: float = 0.5  # Fraction of training for epsilon decay (increased for better exploration)
+    exploration_initial_eps: float = 1.0  # Initial epsilon
+    exploration_final_eps: float = 0.05  # Final epsilon
+    
+    # Network architecture
+    net_arch: List[int] = field(default_factory=lambda: [128, 128])  # Hidden layers
+    
+    # Device and performance
+    device: str = "auto"  # "auto", "cpu", "cuda"
+    
+    # Training settings
+    max_episode_steps: int = 500  # Max steps per episode
+    verbose: int = 1  # Verbosity level
 
 
 @dataclass
