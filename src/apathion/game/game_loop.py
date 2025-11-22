@@ -246,7 +246,14 @@ class GameLoop:
             goal = self.game_state.map.goal_positions[0]
             for enemy in newly_spawned:
                 start = (int(enemy.position[0]), int(enemy.position[1]))
-                path = self.pathfinder.find_path(start, goal, enemy_id=enemy.id)
+                path = self.pathfinder.find_path(
+                    start, goal,
+                    enemy_id=enemy.id,
+                    health=enemy.health,
+                    max_health=enemy.max_health,
+                    wave=self.current_wave,
+                    enemy_type=enemy.enemy_type
+                )
                 enemy.set_path(path)
         
         # Check if wave is complete and spawn next

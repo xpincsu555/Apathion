@@ -16,6 +16,7 @@ from apathion.pathfinding.astar import AStarPathfinder
 from apathion.pathfinding.aco import ACOPathfinder
 from apathion.pathfinding.dqn import DQNPathfinder
 from apathion.pathfinding.fixed import FixedPathfinder
+from apathion.pathfinding.hybrid import HybridPathfinder
 from apathion.evaluation.logger import GameLogger
 from apathion.evaluation.evaluator import Evaluator
 from apathion.config import (
@@ -47,6 +48,7 @@ class ApathionCLI:
         waves: int = 5,
         enemies: int = 10,
         config_file: Optional[str] = None,
+        model_path: Optional[str] = None,
     ):
         """
         Run an interactive game session with pygame visualization.
@@ -57,16 +59,31 @@ class ApathionCLI:
             waves: Number of waves to spawn
             enemies: Enemies per wave
             config_file: Optional path to config JSON file
+            model_path: Optional path to trained DQN model (for dqn algorithm)
         
         Example:
             apathion play --algorithm=astar_basic --map_type=branching --waves=10
             apathion play --algorithm=astar_enhanced --map_type=branching --waves=10
+            apathion play --algorithm=dqn --model_path=models/dqn_model
         """
         print(f"Starting Apathion with {algorithm} on {map_type} map...")
         
         # Load configuration
         if config_file:
             config = GameConfig.from_json(config_file)
+            # Override config file settings with command-line arguments
+            # This allows: apathion play --algorithm=dqn --config_file=...
+            print(f"  Loaded config from: {config_file}")
+            print(f"  Config algorithm: {config.algorithm}")
+            
+            # Command-line algorithm overrides config file
+            if algorithm != "astar":  # Default value
+                print(f"  Overriding algorithm: {config.algorithm} -> {algorithm}")
+                config.algorithm = algorithm
+            else:
+                # Use config file algorithm
+                algorithm = config.algorithm
+                
         else:
             config = GameConfig()
             config.algorithm = algorithm
@@ -78,6 +95,11 @@ class ApathionCLI:
             config.map.baseline_path = [
                 [0, 11], [1, 11], [2, 11], [3, 11], [4, 11], [5, 11], [6, 11], [7, 11], [8, 11], [9, 11], [10, 11], [11, 11], [12, 11], [13, 11], [14, 11], [15, 11], [16, 11], [16, 10], [16, 9], [17, 9], [18, 9], [19, 9], [19, 9], [19, 8], [19, 7], [19, 6], [20, 6], [21, 6], [22, 6], [23, 6], [23, 5], [24, 5], [25, 5], [26, 5], [27, 5], [28, 5], [29, 5]
             ]
+        
+        # Set model path for DQN if provided (works for both config file and no config)
+        if algorithm == "dqn" and model_path:
+            print(f"  Setting DQN model path: {model_path}")
+            config.dqn.model_path = model_path
         
         # Create map
         game_map = self._create_map(config.map)
@@ -204,35 +226,248 @@ class ApathionCLI:
         self,
         episodes: int = 1000,
         map_type: str = "simple",
-        save_path: str = "models/dqn_model.pth",
+        save_path: str = "models/dqn_model",
         config_file: Optional[str] = None,
+        device: str = "auto",
+        num_towers: int = 3,
+        random_towers: bool = True,  # DEFAULT: True for generalization
+        learning_rate: float = 0.0003,
+        buffer_size: int = 100000,
+        batch_size: int = 32,
+        learning_starts: int = 1000,
+        gamma: float = 0.99,
+        target_update_interval: int = 1000,
+        exploration_fraction: float = 12.5,  # Longer exploration for better learning
+        exploration_final_eps: float = 0.05,
+        save_freq: int = 10000,
+        log_interval: int = 100,
+        reward_profile: str = "survival",
     ):
         """
-        Train a DQN model (placeholder).
+        Train a DQN model for pathfinding.
         
         Args:
-            episodes: Number of training episodes
-            map_type: Type of map to train on
-            save_path: Path to save trained model
+            episodes: Number of training episodes (converted to timesteps)
+            map_type: Type of map to train on ("simple", "branching", "open_arena")
+            save_path: Path to save trained model (without .zip extension)
             config_file: Optional path to training config JSON file
+            device: Device for training ("auto", "cpu", "cuda")
+            num_towers: Number of towers to place
+            random_towers: Whether to randomize tower positions each episode
+            learning_rate: Learning rate for optimizer
+            buffer_size: Size of replay buffer
+            batch_size: Batch size for training
+            learning_starts: Steps before learning starts
+            gamma: Discount factor
+            target_update_interval: Steps between target network updates
+            exploration_fraction: Fraction of training for epsilon decay
+            exploration_final_eps: Final epsilon value
+            save_freq: Frequency (in steps) to save checkpoints
+            log_interval: Frequency (in episodes) to log progress
+            reward_profile: Reward optimization ("speed", "balanced", "survival")
         
         Example:
-            apathion train --episodes=5000 --map_type=branching
+            apathion train --episodes=5000 --map_type=simple --device=cuda
+            apathion train --episodes=10000 --map_type=branching --random_towers=True
+            apathion train --episodes=3000 --reward_profile=survival  # High survival rate
         """
-        print(f"Training DQN model for {episodes} episodes...")
-        print(f"Map type: {map_type}")
-        print(f"Save path: {save_path}")
+        try:
+            from stable_baselines3 import DQN
+            from stable_baselines3.common.callbacks import CheckpointCallback, CallbackList
+            from apathion.pathfinding.dqn_env import PathfindingEnv
+            import os
+        except ImportError as e:
+            print(f"Error: Required packages not installed: {e}")
+            print("\nPlease install dependencies:")
+            print("  uv pip install stable-baselines3 gymnasium torch")
+            return
         
-        # PLACEHOLDER: Actual training implementation
-        print("\n⚠️  DQN training not yet implemented.")
-        print("This is a placeholder for the training pipeline.")
-        print("\nPlanned implementation:")
-        print("  1. Initialize DQN agent with neural network")
-        print("  2. Create training environment with specified map")
-        print("  3. Run episodes with experience replay")
-        print("  4. Track training metrics (loss, reward, success rate)")
-        print("  5. Save trained model to specified path")
-        print("\nTo implement, integrate stable-baselines3 or PyTorch RL framework.")
+        print("=" * 70)
+        print("DQN Pathfinding Training")
+        print("=" * 70)
+        
+        # Auto-adjust parameters for stability based on reward profile
+        if reward_profile == "survival":
+            if learning_rate == 0.0003:  # Using default
+                learning_rate = 0.00005  # Much lower for large rewards
+                print(f"  ⚙️  Auto-adjusted learning_rate for SURVIVAL profile: 0.0003 → 0.00005")
+            if target_update_interval == 1000:  # Using default
+                target_update_interval = 5000  # Less frequent updates
+                print(f"  ⚙️  Auto-adjusted target_update_interval for SURVIVAL: 1000 → 5000")
+            if exploration_fraction == 0.5:  # Using default
+                exploration_fraction = 0.7  # More exploration
+                print(f"  ⚙️  Auto-adjusted exploration_fraction for SURVIVAL: 0.5 → 0.7")
+        elif reward_profile == "balanced":
+            if learning_rate == 0.0003:
+                learning_rate = 0.0001
+                print(f"  ⚙️  Auto-adjusted learning_rate for BALANCED profile: 0.0003 → 0.0001")
+            if target_update_interval == 1000:
+                target_update_interval = 2000
+                print(f"  ⚙️  Auto-adjusted target_update_interval for BALANCED: 1000 → 2000")
+        
+        print(f"\nConfiguration:")
+        print(f"  Map type: {map_type}")
+        print(f"  Episodes: {episodes}")
+        print(f"  Device: {device}")
+        print(f"  Towers: {num_towers} ({'random' if random_towers else 'fixed'})")
+        print(f"  Learning rate: {learning_rate}")
+        print(f"  Buffer size: {buffer_size}")
+        print(f"  Batch size: {batch_size}")
+        print(f"  Gamma: {gamma}")
+        print(f"  Target update interval: {target_update_interval}")
+        print(f"  Exploration fraction: {exploration_fraction}")
+        print(f"  Save path: {save_path}")
+        print(f"  Reward profile: {reward_profile}")
+        print()
+        
+        # Create save directory if needed
+        os.makedirs(os.path.dirname(save_path) if os.path.dirname(save_path) else ".", exist_ok=True)
+        checkpoint_dir = os.path.join(os.path.dirname(save_path) or ".", "checkpoints")
+        os.makedirs(checkpoint_dir, exist_ok=True)
+        
+        # Create training environment
+        print("Creating training environment...")
+        env = PathfindingEnv(
+            map_type=map_type,
+            max_steps=500,
+            num_towers=num_towers,
+            random_towers=random_towers,
+            state_size=32,
+            reward_profile=reward_profile,
+        )
+        print(f"  Observation space: {env.observation_space}")
+        print(f"  Action space: {env.action_space}")
+        print()
+        
+        # Convert episodes to timesteps (approximate)
+        total_timesteps = episodes * 500  # Assume ~500 steps per episode max
+        
+        # Create DQN model with gradient clipping for stability
+        print("Initializing DQN model...")
+        
+        # Configure policy with gradient clipping
+        policy_kwargs = {
+            "net_arch": [128, 128],
+            "optimizer_kwargs": {
+                "eps": 1e-5,  # Adam epsilon for numerical stability
+            }
+        }
+        
+        # Add gradient clipping for survival profile (large rewards)
+        max_grad_norm = 10.0  # Default
+        if reward_profile == "survival":
+            max_grad_norm = 1.0  # Stricter clipping for large rewards
+            print(f"  ⚙️  Enabled strict gradient clipping: max_grad_norm={max_grad_norm}")
+        elif reward_profile == "balanced":
+            max_grad_norm = 5.0
+        
+        model = DQN(
+            "MlpPolicy",
+            env,
+            learning_rate=learning_rate,
+            buffer_size=buffer_size,
+            learning_starts=learning_starts,
+            batch_size=batch_size,
+            gamma=gamma,
+            target_update_interval=target_update_interval,
+            train_freq=4,
+            gradient_steps=1,
+            exploration_fraction=exploration_fraction,
+            exploration_initial_eps=1.0,
+            exploration_final_eps=exploration_final_eps,
+            max_grad_norm=max_grad_norm,
+            policy_kwargs=policy_kwargs,
+            verbose=1,
+            device=device,
+        )
+        print(f"  Model initialized with {device}")
+        print(f"  Network architecture: [128, 128]")
+        print()
+        
+        # Create callbacks
+        checkpoint_callback = CheckpointCallback(
+            save_freq=save_freq,
+            save_path=checkpoint_dir,
+            name_prefix="dqn_checkpoint",
+        )
+        
+        # Train the model
+        print(f"Starting training for {total_timesteps} timesteps (~{episodes} episodes)...")
+        print("-" * 70)
+        
+        try:
+            # Try with progress bar, fall back to no progress bar if tqdm not installed
+            try:
+                model.learn(
+                    total_timesteps=total_timesteps,
+                    callback=checkpoint_callback,
+                    log_interval=log_interval,
+                    progress_bar=True,
+                )
+            except ImportError:
+                print("Note: Progress bar disabled (install tqdm and rich for progress bar)")
+                model.learn(
+                    total_timesteps=total_timesteps,
+                    callback=checkpoint_callback,
+                    log_interval=log_interval,
+                    progress_bar=False,
+                )
+        except KeyboardInterrupt:
+            print("\n\nTraining interrupted by user.")
+        
+        # Save final model
+        print("\n" + "-" * 70)
+        print("Training complete!")
+        print(f"\nSaving model to {save_path}...")
+        model.save(save_path)
+        print(f"✓ Model saved successfully")
+        
+        # Save training metadata
+        metadata = {
+            "map_type": map_type,
+            "episodes": episodes,
+            "timesteps": total_timesteps,
+            "num_towers": num_towers,
+            "random_towers": random_towers,
+            "learning_rate": learning_rate,
+            "buffer_size": buffer_size,
+            "batch_size": batch_size,
+            "gamma": gamma,
+            "reward_profile": reward_profile,
+        }
+        
+        import json
+        metadata_path = f"{save_path}_metadata.json"
+        with open(metadata_path, "w") as f:
+            json.dump(metadata, f, indent=2)
+        print(f"✓ Metadata saved to {metadata_path}")
+        
+        # Test the model
+        print("\nTesting trained model...")
+        obs, info = env.reset()
+        total_reward = 0
+        done = False
+        steps = 0
+        
+        while not done and steps < 500:
+            action, _ = model.predict(obs, deterministic=True)
+            obs, reward, terminated, truncated, info = env.step(action)
+            total_reward += reward
+            done = terminated or truncated
+            steps += 1
+        
+        print(f"  Test episode: {steps} steps, reward: {total_reward:.2f}")
+        if info.get("reached_goal"):
+            print("  ✓ Agent reached the goal!")
+        elif info.get("is_dead"):
+            print("  ✗ Agent was eliminated")
+        
+        print("\n" + "=" * 70)
+        print(f"Training complete! Model saved to: {save_path}.zip")
+        print("=" * 70)
+        print("\nTo use the trained model:")
+        print(f"  apathion play --algorithm=dqn --model_path={save_path}")
+        print()
     
     def analyze(
         self,
@@ -627,6 +862,8 @@ class ApathionCLI:
                     action_size=cfg.action_size,
                     use_cache=cfg.use_cache,
                     cache_duration=cfg.cache_duration,
+                    model_path=cfg.model_path,
+                    plan_full_path=cfg.plan_full_path if hasattr(cfg, 'plan_full_path') else True,
                 )
             return DQNPathfinder()
         
@@ -641,6 +878,28 @@ class ApathionCLI:
                 print("  Warning: No baseline path provided for fixed algorithm")
             
             return FixedPathfinder(baseline_path=baseline_path)
+        
+        elif algorithm in ["hybrid", "hybrid_dqn"]:
+            # Hybrid DQN leader-follower system
+            cfg = None
+            if exp_config and hasattr(exp_config, 'dqn'):
+                cfg = exp_config.dqn
+            elif game_config and hasattr(game_config, 'dqn'):
+                cfg = game_config.dqn
+            
+            model_path = cfg.model_path if cfg else None
+            leaders_per_wave = 5  # Default 5 leaders
+            
+            if model_path:
+                print(f"  Using hybrid system with DQN model: {model_path}")
+                print(f"  Leaders per wave: {leaders_per_wave}")
+            else:
+                print("  Warning: No DQN model specified for hybrid algorithm")
+            
+            return HybridPathfinder(
+                model_path=model_path,
+                leaders_per_wave=leaders_per_wave,
+            )
         
         else:
             print(f"Unknown algorithm '{algorithm}', using A*")

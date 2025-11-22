@@ -51,9 +51,11 @@ data/results/*.json
 *.log
 
 # Models
+models/
 models/*.pth
 models/*.pt
 models/*.h5
+models/*.zip
 
 # Temporary files
 *.tmp
