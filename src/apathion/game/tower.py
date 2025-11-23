@@ -31,6 +31,7 @@ class Tower:
         last_attack_time: Timestamp of last attack
         total_damage_dealt: Total damage dealt by this tower
         kills: Number of enemies eliminated
+        cost: Gold cost to purchase this tower
     """
     
     id: str
@@ -42,6 +43,7 @@ class Tower:
     last_attack_time: float = 0.0
     total_damage_dealt: float = 0.0
     kills: int = 0
+    cost: int = 2
     
     def can_attack(self, target_position: Tuple[float, float], current_time: float) -> bool:
         """
@@ -127,6 +129,7 @@ class Tower:
             damage=20.0,
             range=3.0,
             attack_rate=1.0,
+            cost=8,
         )
     
     @classmethod
@@ -139,6 +142,7 @@ class Tower:
             damage=50.0,
             range=6.0,
             attack_rate=0.5,
+            cost=25,
         )
     
     @classmethod
@@ -151,6 +155,7 @@ class Tower:
             damage=10.0,
             range=2.5,
             attack_rate=3.0,
+            cost=11,
         )
     
     @classmethod
@@ -163,5 +168,6 @@ class Tower:
             damage=15.0,
             range=4.0,
             attack_rate=0.75,
+            cost=14,
         )
 

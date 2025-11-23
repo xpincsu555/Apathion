@@ -80,15 +80,15 @@ class HeadlessSimulator:
         game_state = GameState(game_map)
         game_state.start()
         
-        # Place initial towers
+        # Place initial towers (without gold checks for experiments)
         if initial_towers:
             for position, tower_type in initial_towers:
-                game_state.place_tower(position, tower_type, force=True)
+                game_state.place_tower(position, tower_type, force=True, check_gold=False)
         elif self.config.towers.initial_tower_placements:
             for placement in self.config.towers.initial_tower_placements:
                 position = tuple(placement["position"])
                 tower_type = placement.get("type", "basic")
-                game_state.place_tower(position, tower_type, force=True)
+                game_state.place_tower(position, tower_type, force=True, check_gold=False)
         
         # Update pathfinder with initial state
         pathfinder.update_state(game_state.map, game_state.towers)

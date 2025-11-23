@@ -111,6 +111,11 @@ class GameRenderer:
         # Load palm tree decoration sprite
         self.palmtree_sprite: Optional[pygame.Surface] = None
         self._load_palmtree_sprite()
+        
+        # Load coin sprites for gold system
+        self.coin_ui_sprite: Optional[pygame.Surface] = None  # For UI display
+        self.coin_drop_sprite: Optional[pygame.Surface] = None  # For drop animation
+        self._load_coin_sprites()
     
     def toggle_mode(self) -> None:
         """Toggle between visualization modes."""
@@ -395,6 +400,41 @@ class GameRenderer:
             print(f"Map will be displayed without palm tree decorations")
             self.palmtree_sprite = None
     
+    def _load_coin_sprites(self) -> None:
+        """Load coin sprites for gold system."""
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        assets_dir = os.path.join(current_dir, "..", "assets", "map")
+        
+        # Load Coin1.png for UI display (small icon)
+        coin1_path = os.path.join(assets_dir, "Coin1.png")
+        try:
+            sprite = pygame.image.load(coin1_path).convert_alpha()
+            # Scale to reasonable UI size (about 24x24)
+            sprite = pygame.transform.scale(sprite, (24, 24))
+            self.coin_ui_sprite = sprite
+        except (pygame.error, FileNotFoundError) as e:
+            print(f"Warning: Could not load UI coin sprite {coin1_path}: {e}")
+            # Create fallback yellow circle
+            fallback = pygame.Surface((24, 24), pygame.SRCALPHA)
+            pygame.draw.circle(fallback, (255, 215, 0), (12, 12), 12)
+            self.coin_ui_sprite = fallback
+        
+        # Load Coin3.png for drop animation (larger)
+        coin3_path = os.path.join(assets_dir, "Coin3.png")
+        try:
+            sprite = pygame.image.load(coin3_path).convert_alpha()
+            # Scale to reasonable animation size (about cell_size * 0.4)
+            coin_size = int(self.cell_size * 0.4)
+            sprite = pygame.transform.scale(sprite, (coin_size, coin_size))
+            self.coin_drop_sprite = sprite
+        except (pygame.error, FileNotFoundError) as e:
+            print(f"Warning: Could not load coin drop sprite {coin3_path}: {e}")
+            # Create fallback yellow circle
+            coin_size = int(self.cell_size * 0.4)
+            fallback = pygame.Surface((coin_size, coin_size), pygame.SRCALPHA)
+            pygame.draw.circle(fallback, (255, 215, 0), (coin_size // 2, coin_size // 2), coin_size // 2)
+            self.coin_drop_sprite = fallback
+    
     def _is_path_tile(self, x: int, y: int, game_state: GameState) -> bool:
         """
         Check if a tile is part of an enemy path.
@@ -500,6 +540,9 @@ class GameRenderer:
         self._draw_bullets(game_state)
         self._draw_hit_effects(game_state)
         
+        # Draw particle effects (coin drops, sparkles)
+        self._draw_particles(game_state)
+        
         # Draw paths in debug mode
         if self.mode == VisualizationMode.DEBUG and self.config.show_paths:
             self._draw_enemy_paths(game_state)
@@ -507,6 +550,9 @@ class GameRenderer:
         # Draw UI
         if self.mode != VisualizationMode.MINIMAL:
             self._draw_stats(game_state, algorithm_name, fps)
+        
+        # Draw gold display
+        self._draw_gold_ui(game_state)
         
         # Draw mode indicator
         self._draw_mode_indicator()
@@ -889,6 +935,128 @@ class GameRenderer:
         
         # Text
         self.screen.blit(text, (text_x, text_y))
+    
+    def _draw_gold_ui(self, game_state: GameState) -> None:
+        """Draw gold display at top-right corner."""
+        # Position at top-right with some margin
+        margin = 15
+        x_pos = self.config.window_width - 120
+        y_pos = margin
+        
+        # Check for pending gold drops and trigger floating text
+        pending_drops = game_state.consume_pending_gold_drops()
+        for drop in pending_drops:
+            # Create floating text near gold UI
+            text_x = x_pos + 50
+            text_y = y_pos + 20
+            game_state.particles.add_gold_gain(drop['amount'], (text_x, text_y))
+        
+        # Draw semi-transparent background
+        bg_width = 110
+        bg_height = 40
+        bg_surface = pygame.Surface((bg_width, bg_height), pygame.SRCALPHA)
+        bg_surface.fill((0, 0, 0, 200))
+        self.screen.blit(bg_surface, (x_pos - 5, y_pos - 5))
+        
+        # Draw coin icon
+        if self.coin_ui_sprite:
+            coin_x = x_pos
+            coin_y = y_pos + 8
+            self.screen.blit(self.coin_ui_sprite, (coin_x, coin_y))
+            text_x = coin_x + 30
+        else:
+            text_x = x_pos
+        
+        # Draw gold amount text
+        gold_text = f"{game_state.gold}"
+        text_surface = self.font_large.render(gold_text, True, (255, 215, 0))
+        
+        # Add text shadow for better readability
+        shadow_surface = self.font_large.render(gold_text, True, (0, 0, 0))
+        self.screen.blit(shadow_surface, (text_x + 2, y_pos + 12))
+        self.screen.blit(text_surface, (text_x, y_pos + 10))
+    
+    def _draw_particles(self, game_state: GameState) -> None:
+        """Draw all particle effects (floating text, coin drops, sparkles)."""
+        # Draw coin drops
+        for coin in game_state.particles.coin_drops:
+            self._draw_coin_drop(coin)
+        
+        # Draw sparkles
+        for sparkle in game_state.particles.sparkles:
+            self._draw_sparkle(sparkle)
+        
+        # Draw floating texts
+        for text in game_state.particles.floating_texts:
+            self._draw_floating_text(text)
+    
+    def _draw_coin_drop(self, coin) -> None:
+        """Draw a single coin drop animation."""
+        if self.coin_drop_sprite is None:
+            return
+        
+        # Convert grid position to screen position
+        screen_x = self.offset_x + int(coin.position[0] * self.cell_size)
+        screen_y = self.offset_y + int(coin.position[1] * self.cell_size)
+        
+        # Create a copy of the sprite for fading
+        coin_sprite = self.coin_drop_sprite.copy()
+        
+        # Apply fade-out effect
+        alpha = coin.get_alpha()
+        coin_sprite.set_alpha(alpha)
+        
+        # Draw the coin centered on position
+        coin_rect = coin_sprite.get_rect()
+        coin_rect.center = (screen_x, screen_y)
+        self.screen.blit(coin_sprite, coin_rect)
+    
+    def _draw_sparkle(self, sparkle) -> None:
+        """Draw a single sparkle particle."""
+        # Convert grid position to screen position
+        screen_x = self.offset_x + int(sparkle.position[0] * self.cell_size)
+        screen_y = self.offset_y + int(sparkle.position[1] * self.cell_size)
+        
+        # Get current size and alpha
+        size = int(sparkle.get_size())
+        alpha = sparkle.get_alpha()
+        
+        if size < 1:
+            return
+        
+        # Create sparkle surface
+        sparkle_surface = pygame.Surface((size * 2, size * 2), pygame.SRCALPHA)
+        
+        # Draw a star-like shape (diamond + cross)
+        color_with_alpha = sparkle.color + (alpha,)
+        
+        # Draw small circle
+        pygame.draw.circle(sparkle_surface, color_with_alpha, (size, size), size)
+        
+        # Draw the sparkle
+        sparkle_rect = sparkle_surface.get_rect()
+        sparkle_rect.center = (screen_x, screen_y)
+        self.screen.blit(sparkle_surface, sparkle_rect)
+    
+    def _draw_floating_text(self, floating_text) -> None:
+        """Draw floating text effect."""
+        # Create font for this text
+        font = pygame.font.Font(None, floating_text.font_size)
+        
+        # Render text with alpha
+        text_surface = font.render(floating_text.text, True, floating_text.color)
+        
+        # Apply alpha fade
+        alpha = floating_text.get_alpha()
+        text_surface.set_alpha(alpha)
+        
+        # Draw shadow
+        shadow_surface = font.render(floating_text.text, True, (0, 0, 0))
+        shadow_surface.set_alpha(alpha // 2)
+        self.screen.blit(shadow_surface, (floating_text.position[0] + 2, floating_text.position[1] + 2))
+        
+        # Draw text
+        self.screen.blit(text_surface, floating_text.position)
     
     def _interpolate_color(
         self,

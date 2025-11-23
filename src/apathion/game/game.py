@@ -9,6 +9,7 @@ from apathion.game.map import Map
 from apathion.game.enemy import Enemy, EnemyType
 from apathion.game.tower import Tower
 from apathion.game.bullet import Bullet, HitEffect
+from apathion.game.particles import ParticleSystem
 
 
 class GameState:
@@ -25,6 +26,8 @@ class GameState:
         enemies_defeated: Number of enemies defeated
         enemies_escaped: Number of enemies that reached the goal
         is_running: Whether the game is active
+        gold: Current player gold amount
+        particles: Particle system for visual effects
     """
     
     def __init__(self, game_map: Optional[Map] = None):
@@ -46,6 +49,14 @@ class GameState:
         self.enemies_escaped = 0
         self.is_running = False
         self._last_update_time = time.time()
+        
+        # Gold system
+        self.gold = 18  # Starting gold
+        self.total_gold_earned = 0
+        self._pending_gold_drops: List[Dict[str, Any]] = []
+        
+        # Particle system for visual effects
+        self.particles = ParticleSystem()
         
         # Wave spawning state
         self._pending_spawns: List[Dict[str, Any]] = []
@@ -76,6 +87,9 @@ class GameState:
         
         # Update hit effects
         self._update_hit_effects(delta_time)
+        
+        # Update particle system
+        self.particles.update(delta_time)
         
         # Remove dead enemies
         self._cleanup_dead_enemies()
@@ -175,6 +189,23 @@ class GameState:
                             tower.record_kill()
                             break
                     self.enemies_defeated += 1
+                    
+                    # Award gold for killing the enemy
+                    gold_earned = target_enemy.gold_value
+                    self.gold += gold_earned
+                    self.total_gold_earned += gold_earned
+                    
+                    # Store enemy position and gold earned for renderer to create effects
+                    # The renderer will access this through a method on game state
+                    if not hasattr(self, '_pending_gold_drops'):
+                        self._pending_gold_drops = []
+                    self._pending_gold_drops.append({
+                        'position': target_enemy.position,
+                        'amount': gold_earned
+                    })
+                    
+                    # Trigger gold drop particles at enemy position
+                    self.particles.add_coin_drop(target_enemy.position)
                 
                 # Create hit effect at enemy position (in grid coordinates)
                 # Note: hit effect sprite will be loaded by renderer
@@ -240,6 +271,8 @@ class GameState:
                 enemy = Enemy.create_fast(enemy_id, spawn_point)
             elif enemy_type == EnemyType.TANK:
                 enemy = Enemy.create_tank(enemy_id, spawn_point)
+            elif enemy_type == EnemyType.LEADER:
+                enemy = Enemy.create_leader(enemy_id, spawn_point)
             else:
                 enemy = Enemy.create_normal(enemy_id, spawn_point)
             
@@ -307,6 +340,8 @@ class GameState:
                 enemy = Enemy.create_fast(spawn_info["id"], spawn_info["position"])
             elif enemy_type == EnemyType.TANK:
                 enemy = Enemy.create_tank(spawn_info["id"], spawn_info["position"])
+            elif enemy_type == EnemyType.LEADER:
+                enemy = Enemy.create_leader(spawn_info["id"], spawn_info["position"])
             else:
                 enemy = Enemy.create_normal(spawn_info["id"], spawn_info["position"])
             
@@ -416,11 +451,42 @@ class GameState:
                 filtered_path = self._filter_path_from_position(path, enemy.position)
                 enemy.set_path(filtered_path)
     
+    def get_tower_cost(self, tower_type: str) -> int:
+        """
+        Get the gold cost for a tower type.
+        
+        Args:
+            tower_type: Type of tower
+            
+        Returns:
+            Gold cost for the tower
+        """
+        costs = {
+            "basic": 8,
+            "sniper": 25,
+            "rapid": 11,
+            "area": 14,
+        }
+        return costs.get(tower_type, 8)
+    
+    def can_afford_tower(self, tower_type: str) -> bool:
+        """
+        Check if player can afford a tower type.
+        
+        Args:
+            tower_type: Type of tower
+            
+        Returns:
+            True if player has enough gold
+        """
+        return self.gold >= self.get_tower_cost(tower_type)
+    
     def place_tower(
         self,
         position: Tuple[int, int],
         tower_type: str = "basic",
         force: bool = False,
+        check_gold: bool = True,
     ) -> Optional[Tower]:
         """
         Place a tower at the specified position.
@@ -428,7 +494,8 @@ class GameState:
         Args:
             position: (x, y) grid position
             tower_type: Type of tower to place
-            force: If True, allows placement on obstacles (for initial config)
+            force: If True, bypasses placement validation rules (for initial config)
+            check_gold: If True, checks gold cost (set False for initial towers)
             
         Returns:
             Placed tower instance, or None if placement failed
@@ -438,13 +505,25 @@ class GameState:
             return None
         
         # Check if position is valid (unless forcing)
-        if not force and not self.map.is_walkable(position[0], position[1]):
-            return None
+        if not force:
+            # New placement validation: check baseline_path and obstacle_regions
+            is_valid, error_msg = self.map.is_valid_tower_placement(position[0], position[1])
+            if not is_valid:
+                # Store the error message for feedback
+                self._last_placement_error = error_msg
+                return None
         
         # Check if a tower already exists at this position
         for tower in self.towers:
             if tower.position == position:
+                self._last_placement_error = "Position already occupied by a tower"
                 return None
+        
+        # Check gold cost
+        tower_cost = self.get_tower_cost(tower_type)
+        if check_gold and self.gold < tower_cost:
+            self._last_placement_error = f"Not enough gold (cost: {tower_cost}, have: {self.gold})"
+            return None
         
         # Create tower
         tower_id = f"T{len(self.towers):03d}"
@@ -460,10 +539,26 @@ class GameState:
         
         self.towers.append(tower)
         
+        # Deduct gold cost
+        if check_gold:
+            self.gold -= tower_cost
+        
         # Mark position as obstacle for pathfinding
         self.map.add_obstacle(position[0], position[1])
         
+        # Clear error message on success
+        self._last_placement_error = None
+        
         return tower
+    
+    def get_last_placement_error(self) -> Optional[str]:
+        """
+        Get the error message from the last tower placement attempt.
+        
+        Returns:
+            Error message string, or None if last placement succeeded
+        """
+        return getattr(self, '_last_placement_error', None)
     
     def remove_tower(self, tower_id: str) -> bool:
         """
@@ -504,10 +599,25 @@ class GameState:
         self.enemies_defeated = 0
         self.enemies_escaped = 0
         self.is_running = False
+        self.gold = 18
+        self.total_gold_earned = 0
+        self._pending_gold_drops.clear()
+        self.particles.clear()
         self._pending_spawns.clear()
         self._next_spawn_time = 0.0
         self._current_wave_size = 0
         self._current_wave_spawned = 0
+    
+    def consume_pending_gold_drops(self) -> List[Dict[str, Any]]:
+        """
+        Get and clear pending gold drop notifications.
+        
+        Returns:
+            List of gold drop events with position and amount
+        """
+        drops = self._pending_gold_drops.copy()
+        self._pending_gold_drops.clear()
+        return drops
     
     def is_game_over(self) -> bool:
         """

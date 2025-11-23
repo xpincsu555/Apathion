@@ -19,7 +19,7 @@
   },
   "towers": {
     "initial_towers": 3,
-    "tower_types": ["basic", "sniper"],
+    "tower_types": ["basic", "sniper", "rapid", "area"],
     "allow_dynamic_placement": true,
     "tower_damage_multiplier": 1.0,
     "tower_range_multiplier": 1.0

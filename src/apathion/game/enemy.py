@@ -32,6 +32,7 @@ class Enemy:
         current_path: Planned path as list of positions
         is_alive: Whether the enemy is still active
         reached_goal: Whether the enemy reached the goal
+        gold_value: Gold rewarded when this enemy is killed
     """
     
     id: str
@@ -45,6 +46,7 @@ class Enemy:
     current_path: List[Tuple[int, int]] = field(default_factory=list)
     is_alive: bool = True
     reached_goal: bool = False
+    gold_value: int = 2
     
     def __post_init__(self):
         """Initialize path history with starting position."""
@@ -188,6 +190,7 @@ class Enemy:
             health=100.0,
             max_health=100.0,
             speed=1.0,
+            gold_value=2,
         )
     
     @classmethod
@@ -200,6 +203,7 @@ class Enemy:
             health=60.0,
             max_health=60.0,
             speed=2.0,
+            gold_value=1,
         )
     
     @classmethod
@@ -212,5 +216,19 @@ class Enemy:
             health=200.0,
             max_health=200.0,
             speed=0.5,
+            gold_value=3,
+        )
+    
+    @classmethod
+    def create_leader(cls, enemy_id: str, position: Tuple[float, float]) -> "Enemy":
+        """Create a leader enemy with moderate health."""
+        return cls(
+            id=enemy_id,
+            position=position,
+            enemy_type=EnemyType.LEADER,
+            health=150.0,
+            max_health=150.0,
+            speed=1.2,
+            gold_value=1,
         )
 

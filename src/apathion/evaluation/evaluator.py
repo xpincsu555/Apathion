@@ -61,10 +61,10 @@ class Evaluator:
         game = GameState(game_map)
         algorithm.update_state(game.map, game.towers)
         
-        # Place towers if specified
+        # Place towers if specified (without gold checks for evaluation)
         if tower_placements:
             for pos in tower_placements:
-                game.place_tower(pos, tower_type="basic")
+                game.place_tower(pos, tower_type="basic", check_gold=False)
             algorithm.update_state(game.map, game.towers)
         
         # Track experiment metrics
