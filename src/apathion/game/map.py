@@ -200,13 +200,21 @@ class Map:
         }
     
     @classmethod
-    def create_simple_map(cls, width: int = 30, height: int = 20) -> "Map":
+    def create_simple_map(
+        cls, 
+        width: int = 30, 
+        height: int = 20,
+        spawn_points: Optional[List[Tuple[int, int]]] = None,
+        goal_positions: Optional[List[Tuple[int, int]]] = None
+    ) -> "Map":
         """
         Create a simple open map with minimal obstacles.
         
         Args:
             width: Width of the map
             height: Height of the map
+            spawn_points: Optional list of spawn point coordinates
+            goal_positions: Optional list of goal position coordinates
             
         Returns:
             New Map instance
@@ -214,8 +222,8 @@ class Map:
         return cls(
             width=width,
             height=height,
-            spawn_points=[(0, height // 2)],
-            goal_positions=[(width - 1, height // 2)],
+            spawn_points=spawn_points or [(0, height // 2)],
+            goal_positions=goal_positions or [(width - 1, height // 2)],
         )
     
     @classmethod
@@ -228,7 +236,7 @@ class Map:
         distinct path options (upper, middle, lower routes).
         
         Args:
-            config: Optional MapConfig object with obstacle_regions
+            config: Optional MapConfig object with obstacle_regions, spawn_points, goal_positions
         
         Returns:
             New Map instance with branching layout
@@ -263,18 +271,35 @@ class Map:
                     if 0 <= x < width and 0 <= y < height:
                         obstacles.append((x, y))
         
+        # Get spawn_points and goal_positions from config or use defaults
+        spawn_points = None
+        goal_positions = None
+        if config:
+            if hasattr(config, 'spawn_points') and config.spawn_points:
+                spawn_points = [tuple(sp) for sp in config.spawn_points]
+            if hasattr(config, 'goal_positions') and config.goal_positions:
+                goal_positions = [tuple(gp) for gp in config.goal_positions]
+        
         return cls(
             width=width,
             height=height,
             obstacles=obstacles,
-            spawn_points=[(0, 11)],
-            goal_positions=[(29, 5)],
+            spawn_points=spawn_points or [(0, 11)],
+            goal_positions=goal_positions or [(29, 5)],
         )
     
     @classmethod
-    def create_open_arena(cls) -> "Map":
+    def create_open_arena(
+        cls,
+        spawn_points: Optional[List[Tuple[int, int]]] = None,
+        goal_positions: Optional[List[Tuple[int, int]]] = None
+    ) -> "Map":
         """
         Create an open arena with maximum routing freedom.
+        
+        Args:
+            spawn_points: Optional list of spawn point coordinates
+            goal_positions: Optional list of goal position coordinates
         
         Returns:
             New Map instance with minimal obstacles
@@ -283,7 +308,7 @@ class Map:
         return cls(
             width=width,
             height=height,
-            spawn_points=[(0, height // 2)],
-            goal_positions=[(width - 1, height // 2)],
+            spawn_points=spawn_points or [(0, height // 2)],
+            goal_positions=goal_positions or [(width - 1, height // 2)],
         )
 

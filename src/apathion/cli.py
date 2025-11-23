@@ -743,16 +743,34 @@ class ApathionCLI:
             map_type = map_config.map_type
             baseline_path = map_config.baseline_path
         
+        # Extract spawn_points and goal_positions from config if provided
+        spawn_points = None
+        goal_positions = None
+        if not isinstance(map_config, str):
+            if hasattr(map_config, 'spawn_points') and map_config.spawn_points:
+                spawn_points = [tuple(sp) for sp in map_config.spawn_points]
+            if hasattr(map_config, 'goal_positions') and map_config.goal_positions:
+                goal_positions = [tuple(gp) for gp in map_config.goal_positions]
+        
         # Create the map
         if map_type == "simple":
-            game_map = Map.create_simple_map()
+            game_map = Map.create_simple_map(
+                spawn_points=spawn_points,
+                goal_positions=goal_positions
+            )
         elif map_type == "branching":
             game_map = Map.create_branching_map(config=map_config if not isinstance(map_config, str) else None)
         elif map_type == "open_arena":
-            game_map = Map.create_open_arena()
+            game_map = Map.create_open_arena(
+                spawn_points=spawn_points,
+                goal_positions=goal_positions
+            )
         else:
             print(f"Unknown map type '{map_type}', using simple map")
-            game_map = Map.create_simple_map()
+            game_map = Map.create_simple_map(
+                spawn_points=spawn_points,
+                goal_positions=goal_positions
+            )
         
         # Validate baseline path if provided
         if baseline_path and validate_path:

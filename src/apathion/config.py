@@ -17,6 +17,8 @@ class MapConfig:
     obstacle_density: float = 0.0  # 0.0 to 1.0
     baseline_path: Optional[List[List[int]]] = None  # Optional fixed path as baseline [[x1,y1], [x2,y2], ...]
     obstacle_regions: Optional[List[List[int]]] = None  # Rectangular obstacle regions [[x1, y1, x2, y2], ...]
+    spawn_points: Optional[List[List[int]]] = None  # Spawn points [[x1, y1], [x2, y2], ...]
+    goal_positions: Optional[List[List[int]]] = None  # Goal positions [[x1, y1], [x2, y2], ...]
     
 
 @dataclass
@@ -33,7 +35,7 @@ class EnemyConfig:
 class TowerConfig:
     """Configuration for tower placement and stats."""
     initial_towers: int = 3
-    tower_types: List[str] = field(default_factory=lambda: ["basic"])
+    tower_types: List[str] = field(default_factory=lambda: ["basic", "sniper", "rapid", "area"])
     allow_dynamic_placement: bool = True
     tower_damage_multiplier: float = 1.0
     tower_range_multiplier: float = 1.0

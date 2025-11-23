@@ -214,11 +214,17 @@ class GameLoop:
                 0 <= grid_pos[1] < self.game_state.map.height):
             return
         
-        # Try to place tower (force=True allows placement on obstacles)
-        tower = self.game_state.place_tower(grid_pos, self.selected_tower_type, force=True)
+        # Check if player can afford this tower type
+        tower_cost = self.game_state.get_tower_cost(self.selected_tower_type)
+        if not self.game_state.can_afford_tower(self.selected_tower_type):
+            print(f"Cannot afford {self.selected_tower_type} tower (cost: {tower_cost}, gold: {self.game_state.gold})")
+            return
+        
+        # Try to place tower (force=True allows placement on obstacles, check_gold=True enforces cost)
+        tower = self.game_state.place_tower(grid_pos, self.selected_tower_type, force=True, check_gold=True)
         
         if tower:
-            print(f"Placed {self.selected_tower_type} tower at {grid_pos}")
+            print(f"Placed {self.selected_tower_type} tower at {grid_pos} for {tower_cost} gold (remaining: {self.game_state.gold})")
             # Update pathfinder with new tower
             self.pathfinder.update_state(self.game_state.map, self.game_state.towers)
             
@@ -326,20 +332,40 @@ class GameLoop:
     
     def _draw_controls_help(self) -> None:
         """Draw controls help at the bottom of the screen."""
+        # Get tower costs
+        tower_costs = {
+            "basic": self.game_state.get_tower_cost("basic"),
+            "sniper": self.game_state.get_tower_cost("sniper"),
+            "rapid": self.game_state.get_tower_cost("rapid"),
+            "area": self.game_state.get_tower_cost("area"),
+        }
+        
         controls = [
             "Controls:",
             "Click: Place tower",
-            "T: Change tower type",
-            "Space: Pause",
-            "Tab: Toggle view",
-            "ESC: Quit"
+            f"T: Change tower ({self.selected_tower_type.upper()}, cost: {tower_costs[self.selected_tower_type]})",
+            "1: Basic (8g)  2: Sniper (25g)",
+            "3: Rapid (11g)  4: Area (14g)",
+            "Space: Pause  Tab: View  ESC: Quit"
         ]
         
         font = pygame.font.Font(None, 18)
         y_offset = self.config.visualization.window_height - 15 * len(controls) - 10
         
-        for line in controls:
-            text = font.render(line, True, (200, 200, 200))
+        # Draw semi-transparent background
+        bg_height = 15 * len(controls) + 15
+        bg_surface = pygame.Surface((280, bg_height), pygame.SRCALPHA)
+        bg_surface.fill((0, 0, 0, 180))
+        self.screen.blit(bg_surface, (5, y_offset - 5))
+        
+        for i, line in enumerate(controls):
+            # Highlight current tower selection
+            if i == 2:  # Tower type line
+                color = (100, 255, 100) if self.game_state.can_afford_tower(self.selected_tower_type) else (255, 100, 100)
+            else:
+                color = (200, 200, 200)
+            
+            text = font.render(line, True, color)
             self.screen.blit(text, (10, y_offset))
             y_offset += 15
     
@@ -406,13 +432,13 @@ def run_game_loop(
     # Place initial towers if provided
     if initial_towers:
         for position, tower_type in initial_towers:
-            game_state.place_tower(position, tower_type, force=True)
+            game_state.place_tower(position, tower_type, force=True, check_gold=False)
     elif config.towers.initial_tower_placements:
         # Use custom tower placements from config (force placement even on obstacles)
         for placement in config.towers.initial_tower_placements:
             position = tuple(placement["position"])
             tower_type = placement.get("type", "basic")
-            result = game_state.place_tower(position, tower_type, force=True)
+            result = game_state.place_tower(position, tower_type, force=True, check_gold=False)
             if result is None:
                 print(f"Warning: Failed to place {tower_type} tower at {position}")
     elif config.towers.initial_towers > 0:
@@ -423,7 +449,7 @@ def run_game_loop(
             x = (i + 1) * tower_spacing
             y = game_map.height // 2
             tower_type = config.towers.tower_types[i % len(config.towers.tower_types)]
-            game_state.place_tower((x, y), tower_type)
+            game_state.place_tower((x, y), tower_type, check_gold=False)
     
     # Create and run game loop
     game_loop = GameLoop(config, game_state, pathfinder)
