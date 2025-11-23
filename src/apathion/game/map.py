@@ -28,6 +28,8 @@ class Map:
         obstacles: Optional[List[Tuple[int, int]]] = None,
         spawn_points: Optional[List[Tuple[int, int]]] = None,
         goal_positions: Optional[List[Tuple[int, int]]] = None,
+        baseline_path: Optional[List[Tuple[int, int]]] = None,
+        obstacle_regions: Optional[List[Tuple[int, int, int, int]]] = None,
     ):
         """
         Initialize a new map.
@@ -38,6 +40,8 @@ class Map:
             obstacles: List of (x, y) coordinates marked as obstacles
             spawn_points: List of (x, y) coordinates where enemies spawn
             goal_positions: List of (x, y) coordinates for goals
+            baseline_path: List of (x, y) coordinates defining the enemy road/path
+            obstacle_regions: List of (x1, y1, x2, y2) rectangular regions for tower placement
         """
         self.width = width
         self.height = height
@@ -52,6 +56,13 @@ class Map:
         # Default spawn and goal if not provided
         self.spawn_points = spawn_points or [(0, height // 2)]
         self.goal_positions = goal_positions or [(width - 1, height // 2)]
+        
+        # Store baseline path and obstacle regions for tower placement validation
+        self.baseline_path = baseline_path or []
+        self.obstacle_regions = obstacle_regions or []
+        
+        # Create a set of baseline path positions for fast lookup
+        self._baseline_path_set = set(self.baseline_path) if self.baseline_path else set()
     
     def is_walkable(self, x: int, y: int) -> bool:
         """
@@ -137,6 +148,62 @@ class Map:
             self.grid[y, x] = 0
             return True
         return False
+    
+    def is_on_baseline_path(self, x: int, y: int) -> bool:
+        """
+        Check if a position is on the baseline path (enemy road).
+        
+        Args:
+            x: X coordinate
+            y: Y coordinate
+            
+        Returns:
+            True if position is on the baseline path
+        """
+        return (x, y) in self._baseline_path_set
+    
+    def is_in_obstacle_region(self, x: int, y: int) -> bool:
+        """
+        Check if a position is inside any obstacle region.
+        
+        Args:
+            x: X coordinate
+            y: Y coordinate
+            
+        Returns:
+            True if position is inside an obstacle region
+        """
+        for x1, y1, x2, y2 in self.obstacle_regions:
+            if x1 <= x < x2 and y1 <= y < y2:
+                return True
+        return False
+    
+    def is_valid_tower_placement(self, x: int, y: int) -> Tuple[bool, str]:
+        """
+        Check if a position is valid for tower placement.
+        
+        Tower placement rules:
+        - Must NOT be on the baseline path (enemy road)
+        - If obstacle_regions are defined, must be inside one of them
+        - If no obstacle_regions are defined, can place anywhere (except baseline_path)
+        
+        Args:
+            x: X coordinate
+            y: Y coordinate
+            
+        Returns:
+            Tuple of (is_valid, error_message)
+        """
+        # Check if on baseline path
+        if self.is_on_baseline_path(x, y):
+            return False, "Cannot place tower on enemy path"
+        
+        # If obstacle_regions are defined, check if position is in one
+        if self.obstacle_regions:
+            if not self.is_in_obstacle_region(x, y):
+                return False, "Can only place towers in obstacle regions"
+        
+        return True, ""
     
     def validate_path(self, path: List[Tuple[int, int]]) -> Tuple[bool, str]:
         """
@@ -236,7 +303,7 @@ class Map:
         distinct path options (upper, middle, lower routes).
         
         Args:
-            config: Optional MapConfig object with obstacle_regions, spawn_points, goal_positions
+            config: Optional MapConfig object with obstacle_regions, spawn_points, goal_positions, baseline_path
         
         Returns:
             New Map instance with branching layout
@@ -274,11 +341,14 @@ class Map:
         # Get spawn_points and goal_positions from config or use defaults
         spawn_points = None
         goal_positions = None
+        baseline_path = None
         if config:
             if hasattr(config, 'spawn_points') and config.spawn_points:
                 spawn_points = [tuple(sp) for sp in config.spawn_points]
             if hasattr(config, 'goal_positions') and config.goal_positions:
                 goal_positions = [tuple(gp) for gp in config.goal_positions]
+            if hasattr(config, 'baseline_path') and config.baseline_path:
+                baseline_path = [tuple(bp) for bp in config.baseline_path]
         
         return cls(
             width=width,
@@ -286,6 +356,8 @@ class Map:
             obstacles=obstacles,
             spawn_points=spawn_points or [(0, 11)],
             goal_positions=goal_positions or [(29, 5)],
+            baseline_path=baseline_path,
+            obstacle_regions=obstacle_regions,
         )
     
     @classmethod

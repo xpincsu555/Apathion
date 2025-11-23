@@ -220,8 +220,8 @@ class GameLoop:
             print(f"Cannot afford {self.selected_tower_type} tower (cost: {tower_cost}, gold: {self.game_state.gold})")
             return
         
-        # Try to place tower (force=True allows placement on obstacles, check_gold=True enforces cost)
-        tower = self.game_state.place_tower(grid_pos, self.selected_tower_type, force=True, check_gold=True)
+        # Try to place tower (force=False enforces placement rules, check_gold=True enforces cost)
+        tower = self.game_state.place_tower(grid_pos, self.selected_tower_type, force=False, check_gold=True)
         
         if tower:
             print(f"Placed {self.selected_tower_type} tower at {grid_pos} for {tower_cost} gold (remaining: {self.game_state.gold})")
@@ -232,7 +232,12 @@ class GameLoop:
             goal = self.game_state.map.goal_positions[0]
             self.game_state.update_enemy_paths(self.pathfinder, goal)
         else:
-            print(f"Failed to place tower at {grid_pos} - position may be occupied by another tower")
+            # Get error message from game state
+            error_msg = self.game_state.get_last_placement_error()
+            if error_msg:
+                print(f"Failed to place tower at {grid_pos}: {error_msg}")
+            else:
+                print(f"Failed to place tower at {grid_pos}")
     
     def _update_game(self, delta_time: float) -> None:
         """

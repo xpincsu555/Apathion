@@ -494,7 +494,7 @@ class GameState:
         Args:
             position: (x, y) grid position
             tower_type: Type of tower to place
-            force: If True, allows placement on obstacles (for initial config)
+            force: If True, bypasses placement validation rules (for initial config)
             check_gold: If True, checks gold cost (set False for initial towers)
             
         Returns:
@@ -505,17 +505,24 @@ class GameState:
             return None
         
         # Check if position is valid (unless forcing)
-        if not force and not self.map.is_walkable(position[0], position[1]):
-            return None
+        if not force:
+            # New placement validation: check baseline_path and obstacle_regions
+            is_valid, error_msg = self.map.is_valid_tower_placement(position[0], position[1])
+            if not is_valid:
+                # Store the error message for feedback
+                self._last_placement_error = error_msg
+                return None
         
         # Check if a tower already exists at this position
         for tower in self.towers:
             if tower.position == position:
+                self._last_placement_error = "Position already occupied by a tower"
                 return None
         
         # Check gold cost
         tower_cost = self.get_tower_cost(tower_type)
         if check_gold and self.gold < tower_cost:
+            self._last_placement_error = f"Not enough gold (cost: {tower_cost}, have: {self.gold})"
             return None
         
         # Create tower
@@ -539,7 +546,19 @@ class GameState:
         # Mark position as obstacle for pathfinding
         self.map.add_obstacle(position[0], position[1])
         
+        # Clear error message on success
+        self._last_placement_error = None
+        
         return tower
+    
+    def get_last_placement_error(self) -> Optional[str]:
+        """
+        Get the error message from the last tower placement attempt.
+        
+        Returns:
+            Error message string, or None if last placement succeeded
+        """
+        return getattr(self, '_last_placement_error', None)
     
     def remove_tower(self, tower_id: str) -> bool:
         """
