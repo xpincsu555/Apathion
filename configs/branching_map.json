@@ -61,15 +61,6 @@
     "show_health_bars": true,
     "show_pheromones": true,
     "show_paths": true
-  },
-  "aco": {
-    "name": "ACO-Custom",
-    "num_ants": 5,
-    "evaporation_rate": 0.15,
-    "deposit_strength": 1.5,
-    "alpha": 1.5,
-    "beta": 2.0,
-    "gamma": 111.0
   }
 }
 
