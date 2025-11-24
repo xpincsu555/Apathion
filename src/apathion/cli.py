@@ -231,17 +231,18 @@ class ApathionCLI:
         device: str = "auto",
         num_towers: int = 3,
         random_towers: bool = True,  # DEFAULT: True for generalization
-        learning_rate: float = 0.0003,
+        num_envs: int = 1,  # Number of parallel environments (1=no parallelization, 4-8 recommended for GPU)
+        learning_rate: float = 0.0003,  # Will be auto-adjusted for reward profile
         buffer_size: int = 100000,
-        batch_size: int = 32,
+        batch_size: int = 64,  # Increased from 32 for better hardware utilization
         learning_starts: int = 1000,
         gamma: float = 0.99,
         target_update_interval: int = 1000,
-        exploration_fraction: float = 12.5,  # Longer exploration for better learning
+        exploration_fraction: float = 0.125,  # 12.5% of training for epsilon decay
         exploration_final_eps: float = 0.05,
         save_freq: int = 10000,
         log_interval: int = 100,
-        reward_profile: str = "survival",
+        reward_profile: str = "balanced",
     ):
         """
         Train a DQN model for pathfinding.
@@ -254,6 +255,7 @@ class ApathionCLI:
             device: Device for training ("auto", "cpu", "cuda")
             num_towers: Number of towers to place
             random_towers: Whether to randomize tower positions each episode
+            num_envs: Number of parallel environments (1=single, 4-8 recommended for GPU)
             learning_rate: Learning rate for optimizer
             buffer_size: Size of replay buffer
             batch_size: Batch size for training
@@ -264,16 +266,19 @@ class ApathionCLI:
             exploration_final_eps: Final epsilon value
             save_freq: Frequency (in steps) to save checkpoints
             log_interval: Frequency (in episodes) to log progress
-            reward_profile: Reward optimization ("speed", "balanced", "survival")
+            reward_profile: Reward optimization ("speed", "balanced", "survival") [default: balanced]
         
         Example:
-            apathion train --episodes=5000 --map_type=simple --device=cuda
+            apathion train --episodes=5000 --map_type=simple --device=cuda --num_envs=4
             apathion train --episodes=10000 --map_type=branching --random_towers=True
-            apathion train --episodes=3000 --reward_profile=survival  # High survival rate
+            apathion train --episodes=3000 --reward_profile=survival  # Max survival
+            apathion train --episodes=5000 --reward_profile=speed  # Fastest paths
+            apathion train --episodes=5000 --num_envs=8 --device=cuda  # Fast GPU training
         """
         try:
             from stable_baselines3 import DQN
             from stable_baselines3.common.callbacks import CheckpointCallback, CallbackList
+            from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
             from apathion.pathfinding.dqn_env import PathfindingEnv
             import os
         except ImportError as e:
@@ -294,9 +299,9 @@ class ApathionCLI:
             if target_update_interval == 1000:  # Using default
                 target_update_interval = 5000  # Less frequent updates
                 print(f"  ⚙️  Auto-adjusted target_update_interval for SURVIVAL: 1000 → 5000")
-            if exploration_fraction == 0.5:  # Using default
-                exploration_fraction = 0.7  # More exploration
-                print(f"  ⚙️  Auto-adjusted exploration_fraction for SURVIVAL: 0.5 → 0.7")
+            if exploration_fraction == 0.125:  # Using default
+                exploration_fraction = 0.2  # More exploration for survival
+                print(f"  ⚙️  Auto-adjusted exploration_fraction for SURVIVAL: 0.125 → 0.2")
         elif reward_profile == "balanced":
             if learning_rate == 0.0003:
                 learning_rate = 0.0001
@@ -309,6 +314,7 @@ class ApathionCLI:
         print(f"  Map type: {map_type}")
         print(f"  Episodes: {episodes}")
         print(f"  Device: {device}")
+        print(f"  Parallel environments: {num_envs}")
         print(f"  Towers: {num_towers} ({'random' if random_towers else 'fixed'})")
         print(f"  Learning rate: {learning_rate}")
         print(f"  Buffer size: {buffer_size}")
@@ -325,33 +331,82 @@ class ApathionCLI:
         checkpoint_dir = os.path.join(os.path.dirname(save_path) or ".", "checkpoints")
         os.makedirs(checkpoint_dir, exist_ok=True)
         
-        # Create training environment
+        # Create training environment(s)
         print("Creating training environment...")
-        env = PathfindingEnv(
-            map_type=map_type,
-            max_steps=500,
-            num_towers=num_towers,
-            random_towers=random_towers,
-            state_size=32,
-            reward_profile=reward_profile,
-        )
+        
+        def make_env(rank: int):
+            """Create a single environment (for vectorization)."""
+            def _init():
+                return PathfindingEnv(
+                    map_type=map_type,
+                    max_steps=500,
+                    num_towers=num_towers,
+                    random_towers=random_towers,
+                    state_size=32,
+                    reward_profile=reward_profile,
+                )
+            return _init
+        
+        if num_envs == 1:
+            # Single environment (no vectorization)
+            env = PathfindingEnv(
+                map_type=map_type,
+                max_steps=500,
+                num_towers=num_towers,
+                random_towers=random_towers,
+                state_size=32,
+                reward_profile=reward_profile,
+            )
+        else:
+            # Vectorized environments for parallel training
+            # Use SubprocVecEnv for true parallelization (better for CPU-intensive envs)
+            # Use DummyVecEnv for sequential execution (better for simple envs)
+            use_subprocess = num_envs > 2  # Use subprocess for 3+ envs
+            
+            if use_subprocess:
+                print(f"  Using SubprocVecEnv for {num_envs} parallel environments")
+                env = SubprocVecEnv([make_env(i) for i in range(num_envs)])
+            else:
+                print(f"  Using DummyVecEnv for {num_envs} sequential environments")
+                env = DummyVecEnv([make_env(i) for i in range(num_envs)])
+        
         print(f"  Observation space: {env.observation_space}")
         print(f"  Action space: {env.action_space}")
         print()
         
-        # Convert episodes to timesteps (approximate)
-        total_timesteps = episodes * 500  # Assume ~500 steps per episode max
+        # Convert episodes to timesteps (map-specific estimates)
+        # Based on empirical observations of average episode lengths
+        # Adjust for tower count - more towers = longer episodes during training
+        base_steps = {
+            "simple": 200,
+            "branching": 180,
+            "open_arena": 250,
+        }
+        
+        # Scale timesteps based on tower count (more towers = more timesteps needed)
+        tower_difficulty_multiplier = 1.0 + (num_towers - 3) * 0.5  # +50% per tower above 3
+        steps_estimate = int(base_steps.get(map_type, 200) * tower_difficulty_multiplier)
+        total_timesteps = episodes * steps_estimate
+        
+        print(f"  Estimated steps per episode: {steps_estimate}")
+        print(f"  Tower difficulty multiplier: {tower_difficulty_multiplier:.1f}x")
+        print(f"  Total timesteps target: {total_timesteps:,} (~{episodes} episodes)")
         
         # Create DQN model with gradient clipping for stability
         print("Initializing DQN model...")
         
-        # Configure policy with gradient clipping
+        # Configure policy with larger network for better pattern learning
+        # Observation space is fixed at 32 features (encodes 5 nearest towers only),
+        # so network size is independent of actual tower count on map
+        network_arch = [256, 256, 128]  # Larger, deeper network for complex tower avoidance
+        
         policy_kwargs = {
-            "net_arch": [128, 128],
+            "net_arch": network_arch,
             "optimizer_kwargs": {
                 "eps": 1e-5,  # Adam epsilon for numerical stability
             }
         }
+        print(f"  Network architecture: {network_arch}")
         
         # Add gradient clipping for survival profile (large rewards)
         max_grad_norm = 10.0  # Default
@@ -371,7 +426,7 @@ class ApathionCLI:
             gamma=gamma,
             target_update_interval=target_update_interval,
             train_freq=4,
-            gradient_steps=1,
+            gradient_steps=2,  # Increased from 1: do 2 gradient updates per training step
             exploration_fraction=exploration_fraction,
             exploration_initial_eps=1.0,
             exploration_final_eps=exploration_final_eps,
@@ -381,7 +436,6 @@ class ApathionCLI:
             device=device,
         )
         print(f"  Model initialized with {device}")
-        print(f"  Network architecture: [128, 128]")
         print()
         
         # Create callbacks
@@ -392,7 +446,7 @@ class ApathionCLI:
         )
         
         # Train the model
-        print(f"Starting training for {total_timesteps} timesteps (~{episodes} episodes)...")
+        print(f"\nStarting training for {total_timesteps:,} timesteps (~{episodes} episodes)...")
         print("-" * 70)
         
         try:
@@ -444,14 +498,25 @@ class ApathionCLI:
         
         # Test the model
         print("\nTesting trained model...")
-        obs, info = env.reset()
+        
+        # Create a single environment for testing (not vectorized)
+        test_env = PathfindingEnv(
+            map_type=map_type,
+            max_steps=500,
+            num_towers=num_towers,
+            random_towers=random_towers,
+            state_size=32,
+            reward_profile=reward_profile,
+        )
+        
+        obs, info = test_env.reset()
         total_reward = 0
         done = False
         steps = 0
         
         while not done and steps < 500:
             action, _ = model.predict(obs, deterministic=True)
-            obs, reward, terminated, truncated, info = env.step(action)
+            obs, reward, terminated, truncated, info = test_env.step(action)
             total_reward += reward
             done = terminated or truncated
             steps += 1
@@ -461,6 +526,8 @@ class ApathionCLI:
             print("  ✓ Agent reached the goal!")
         elif info.get("is_dead"):
             print("  ✗ Agent was eliminated")
+        
+        test_env.close()
         
         print("\n" + "=" * 70)
         print(f"Training complete! Model saved to: {save_path}.zip")

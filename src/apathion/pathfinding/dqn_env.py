@@ -117,10 +117,10 @@ class PathfindingEnv(gym.Env):
             self.spawn_distance_bonus_multiplier = 0.01
         elif profile == "balanced":
             self.goal_reward = 1000.0
-            self.health_bonus_multiplier = 100.0
-            self.death_penalty = 20.0
-            self.step_penalty = 0.0005
-            self.damage_penalty_multiplier = 5.0  # 5x from speed
+            self.health_bonus_multiplier = 200.0  # Increased from 100
+            self.death_penalty = 50.0  # Increased from 20
+            self.step_penalty = 0.0002  # Reduced from 0.0005 (care less about path length)
+            self.damage_penalty_multiplier = 15.0  # Increased from 5.0 (3x stronger!)
             self.progress_reward_multiplier = 0.08
             self.spawn_distance_bonus_multiplier = 0.008
         elif profile == "survival":
