@@ -8,6 +8,8 @@
     "height": 30,
     "map_type": "open_arena",
     "obstacle_density": 0.0,
+    "spawn_points": [[0, 15]],
+    "goal_positions": [[39, 15]],
     "baseline_path": [
       [0, 15], [1, 15], [2, 15], [3, 15], [4, 15], [5, 15], [6, 15], [7, 15], 
       [8, 15], [9, 15], [10, 15], [11, 15], [12, 15], [13, 15], [14, 15], 
@@ -29,7 +31,14 @@
     "tower_types": ["basic", "sniper", "rapid", "area"],
     "allow_dynamic_placement": true,
     "tower_damage_multiplier": 1.0,
-    "tower_range_multiplier": 1.0
+    "tower_range_multiplier": 1.0,
+    "initial_tower_placements": [
+      {"position": [10, 12], "type": "basic"},
+      {"position": [10, 18], "type": "basic"},
+      {"position": [20, 10], "type": "sniper"},
+      {"position": [20, 20], "type": "sniper"},
+      {"position": [30, 15], "type": "area"}
+    ]
   },
   "evaluation": {
     "log_directory": "data/logs",

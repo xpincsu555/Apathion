@@ -58,7 +58,7 @@ class DQNPathfinder(BasePathfinder):
         use_cache: bool = True,
         cache_duration: int = 5,
         model_path: Optional[str] = None,
-        plan_full_path: bool = False,  # Changed: False to match step-by-step training
+        plan_full_path: bool = True,  # Changed: False to match step-by-step training
     ):
         """
         Initialize DQN pathfinder.
