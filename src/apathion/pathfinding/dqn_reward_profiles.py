@@ -49,7 +49,7 @@ def get_reward_weights(profile: RewardProfile) -> Dict[str, Any]:
             "health_bonus_multiplier": 500.0,   # HUGE bonus for high health
             "death_penalty": 100.0,             # HUGE penalty for death
             "step_penalty": 0.0001,             # Much smaller (length doesn't matter much)
-            "damage_penalty_multiplier": 20.0,   # Large damage penalty
+            "damage_penalty_multiplier": 40.0,   # Large damage penalty
             "progress_reward_multiplier": 0.5,  # Increased from 0.02 - stronger goal-seeking incentive
             "spawn_distance_bonus_multiplier": 0.005,
         }

@@ -102,6 +102,7 @@ class PathfindingEnv(gym.Env):
         self.last_distance_to_goal: float = 0.0
         self.last_action: int = 0
         self.cumulative_damage: float = 0.0
+        self.action_changes: int = 0  # Track direction changes for wandering penalty
         
         # Initialize towers
         self._place_towers()
@@ -357,6 +358,39 @@ class PathfindingEnv(gym.Env):
         if distance_from_spawn < 10:
             reward += distance_from_spawn * self.spawn_distance_bonus_multiplier
         
+        # Direction consistency penalty (reduce wandering/zig-zagging)
+        # Optimal path should have few direction changes
+        # if not reached_goal and not is_dead and self.steps > 10:
+        #     # Calculate expected direction changes for optimal path
+        #     # Straight line ~2-3 changes, allow some flexibility
+        #     expected_changes = 3 + (self.steps / 50.0)  # ~1 change per 50 steps
+            
+        #     if self.action_changes > expected_changes:
+        #         # Penalize excessive direction changes
+        #         wandering_penalty = (self.action_changes - expected_changes) * 0.02
+        #         reward -= wandering_penalty
+        
+        # Goal-directedness reward (encourage moving toward goal)
+        # Even if not making distance progress (due to obstacles), reward pointing toward goal
+        if not invalid_move and not reached_goal and not is_dead:
+            # Calculate direction to goal
+            dx_goal = self.goal_position[0] - self.agent_position[0]
+            dy_goal = self.goal_position[1] - self.agent_position[1]
+            
+            # Get actual movement direction from last action
+            dx_move, dy_move = self.ACTION_DIRECTIONS[self.last_action]
+            
+            # Calculate alignment: dot product normalized by Manhattan distance
+            # 1.0 = moving directly toward goal, 0.0 = perpendicular, -1.0 = away
+            manhattan_dist = abs(dx_goal) + abs(dy_goal)
+            if manhattan_dist > 0:
+                alignment = (dx_move * dx_goal + dy_move * dy_goal) / (manhattan_dist + 0.001)
+                
+                # Reward moving in goal direction (even if not making progress due to obstacles)
+                if alignment > 0:
+                    directional_reward = alignment * 0.1
+                    reward += directional_reward
+        
         # Tower proximity penalty (NEW: proactive avoidance, not just damage reaction)
         # This gives IMMEDIATE negative feedback for being near towers, even before taking damage
         if not reached_goal and not is_dead:
@@ -416,6 +450,7 @@ class PathfindingEnv(gym.Env):
         self.steps = 0
         self.cumulative_damage = 0.0
         self.last_action = 0
+        self.action_changes = 0
         
         # Recalculate initial distance
         self.last_distance_to_goal = self._calculate_distance(
@@ -447,6 +482,12 @@ class PathfindingEnv(gym.Env):
             Tuple of (observation, reward, terminated, truncated, info)
         """
         self.steps += 1
+        
+        direction_change_penalty = 0.0
+        # Track direction changes (wandering indicator)
+        if action != self.last_action and self.steps > 1:
+            self.action_changes += 1
+            direction_change_penalty = 1.5
         self.last_action = action
         
         # Get action direction
@@ -488,6 +529,8 @@ class PathfindingEnv(gym.Env):
             distance_improved,
             invalid_move
         )
+
+        reward -= direction_change_penalty
         
         # Get observation
         observation = self._get_observation()

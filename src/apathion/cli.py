@@ -277,11 +277,12 @@ class ApathionCLI:
         """
         try:
             from stable_baselines3 import DQN
-            from stable_baselines3.common.callbacks import CheckpointCallback, CallbackList
+            from stable_baselines3.common.callbacks import CheckpointCallback, CallbackList, BaseCallback
             from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
             from stable_baselines3.common.monitor import Monitor
             from apathion.pathfinding.dqn_env import PathfindingEnv
             import torch.nn as nn
+            import numpy as np
             import os
         except ImportError as e:
             print(f"Error: Required packages not installed: {e}")
@@ -302,8 +303,8 @@ class ApathionCLI:
                 target_update_interval = 5000  # Less frequent updates
                 print(f"  ⚙️  Auto-adjusted target_update_interval for SURVIVAL: 1000 → 5000")
             if exploration_fraction == 0.125:  # Using default
-                exploration_fraction = 0.3  # Balanced exploration for survival (reduced from 0.8)
-                print(f"  ⚙️  Auto-adjusted exploration_fraction for SURVIVAL: 0.125 → 0.3")
+                exploration_fraction = 0.2  # Reduced exploration - agent learns quickly
+                print(f"  ⚙️  Auto-adjusted exploration_fraction for SURVIVAL: 0.125 → 0.2")
         elif reward_profile == "balanced":
             if learning_rate == 0.0003:
                 learning_rate = 0.00005  # Lower for large damage penalties
@@ -447,12 +448,80 @@ class ApathionCLI:
         print(f"  Model initialized with {device}")
         print()
         
+        # Early stopping callback to prevent catastrophic forgetting
+        class EarlyStoppingCallback(BaseCallback):
+            """Stop training when performance stops improving to prevent degradation."""
+            
+            def __init__(self, check_freq=100, patience=1000, min_timesteps=500000, verbose=1):
+                super().__init__(verbose)
+                self.check_freq = check_freq
+                self.patience = patience
+                self.min_timesteps = min_timesteps
+                self.best_mean_reward = -np.inf
+                self.steps_without_improvement = 0
+                self.best_model_saved = False
+                
+            def _on_step(self) -> bool:
+                if self.n_calls % self.check_freq != 0:
+                    return True
+                
+                # Don't stop too early
+                if self.num_timesteps < self.min_timesteps:
+                    return True
+                
+                # Get recent rewards
+                if len(self.model.ep_info_buffer) == 0:
+                    return True
+                
+                recent_rewards = [ep_info['r'] for ep_info in self.model.ep_info_buffer]
+                if len(recent_rewards) < 10:
+                    return True
+                
+                mean_reward = np.mean(recent_rewards[-50:])  # Last 50 episodes
+                
+                # Check for improvement
+                if mean_reward > self.best_mean_reward + 5.0:  # Require 5-point improvement
+                    self.best_mean_reward = mean_reward
+                    self.steps_without_improvement = 0
+                    
+                    # Save best model
+                    best_model_path = f"{save_path}_best"
+                    self.model.save(best_model_path)
+                    self.best_model_saved = True
+                    
+                    if self.verbose > 0:
+                        print(f"\n✓ New best reward: {mean_reward:.1f} at step {self.num_timesteps}")
+                        print(f"  Saved to: {best_model_path}")
+                else:
+                    self.steps_without_improvement += self.check_freq
+                
+                # Early stopping condition
+                if self.steps_without_improvement >= self.patience * self.check_freq:
+                    if self.verbose > 0:
+                        print(f"\n⚠️  Early stopping triggered!")
+                        print(f"   No improvement for {self.steps_without_improvement} steps")
+                        print(f"   Best reward: {self.best_mean_reward:.1f}")
+                        if self.best_model_saved:
+                            print(f"   Best model saved at: {save_path}_best")
+                    return False  # Stop training
+                
+                return True
+        
         # Create callbacks
         checkpoint_callback = CheckpointCallback(
             save_freq=save_freq,
             save_path=checkpoint_dir,
             name_prefix="dqn_checkpoint",
         )
+        
+        early_stopping = EarlyStoppingCallback(
+            check_freq=100,
+            patience=1000,  # Stop after 100k steps without improvement
+            min_timesteps=500000,  # Don't stop before 500k steps (~1400 episodes)
+            verbose=1
+        )
+        
+        callback_list = CallbackList([checkpoint_callback, early_stopping])
         
         # Train the model
         print(f"\nStarting training for {total_timesteps:,} timesteps (~{episodes} episodes)...")
@@ -463,7 +532,7 @@ class ApathionCLI:
             try:
                 model.learn(
                     total_timesteps=total_timesteps,
-                    callback=checkpoint_callback,
+                    callback=callback_list,
                     log_interval=log_interval,
                     progress_bar=True,
                 )
@@ -471,7 +540,7 @@ class ApathionCLI:
                 print("Note: Progress bar disabled (install tqdm and rich for progress bar)")
                 model.learn(
                     total_timesteps=total_timesteps,
-                    callback=checkpoint_callback,
+                    callback=callback_list,
                     log_interval=log_interval,
                     progress_bar=False,
                 )
@@ -481,9 +550,17 @@ class ApathionCLI:
         # Save final model
         print("\n" + "-" * 70)
         print("Training complete!")
-        print(f"\nSaving model to {save_path}...")
+        print(f"\nSaving final model to {save_path}...")
         model.save(save_path)
-        print(f"✓ Model saved successfully")
+        print(f"✓ Final model saved successfully")
+        
+        # Check if best model exists
+        best_path = f"{save_path}_best.zip"
+        if os.path.exists(best_path):
+            print(f"\n✓ Best model available at: {save_path}_best")
+            print(f"  (Recommended: Use best model for deployment)")
+        else:
+            print(f"\n  Note: No best model saved (training may have been too short)")
         
         # Save training metadata
         metadata = {
