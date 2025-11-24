@@ -53,12 +53,12 @@ class DQNPathfinder(BasePathfinder):
     def __init__(
         self,
         name: str = "DQN",
-        state_size: int = 32,
+        state_size: int = 42,  # Updated to 42 for danger-aware features
         action_size: int = 8,
         use_cache: bool = True,
         cache_duration: int = 5,
         model_path: Optional[str] = None,
-        plan_full_path: bool = True,
+        plan_full_path: bool = False,  # Changed: False to match step-by-step training
     ):
         """
         Initialize DQN pathfinder.
@@ -469,6 +469,11 @@ class DQNPathfinder(BasePathfinder):
         rel_y = (goal[1] - position[1]) / self.game_map.height
         obs.extend([rel_x, rel_y])
         
+        # 1b. NEW: Normalized absolute position (2 features)
+        abs_x = position[0] / self.game_map.width
+        abs_y = position[1] / self.game_map.height
+        obs.extend([abs_x, abs_y])
+        
         # 2. Normalized distance to goal (1 feature)
         max_distance = np.sqrt(self.game_map.width ** 2 + self.game_map.height ** 2)
         distance = np.sqrt((goal[0] - position[0]) ** 2 + (goal[1] - position[1]) ** 2)
@@ -510,7 +515,23 @@ class DQNPathfinder(BasePathfinder):
                 # Padding for missing towers
                 obs.extend([0.0, 0.0, 0.0, 0.0])
         
-        # Total features: 2 + 1 + 1 + 8 + 20 = 32
+        # 6. Danger-aware directional features (8 features - danger level per direction)
+        for dx, dy in self.ACTION_DIRECTIONS:
+            x, y = position[0] + dx, position[1] + dy
+            danger_level = 0.0
+            
+            if self.game_map.is_walkable(x, y):
+                # Calculate danger at this position
+                danger_level = self._estimate_damage_at_position((x, y))
+                # Normalize danger (typical max DPS ~50)
+                danger_level = min(1.0, danger_level / 50.0)
+            else:
+                # Obstacle = maximum danger
+                danger_level = 1.0
+            
+            obs.append(danger_level)
+        
+        # Total features: 2 + 2 + 1 + 1 + 8 + 20 + 8 = 42
         return np.array(obs, dtype=np.float32)
     
     def select_action(self, state: np.ndarray, epsilon: float = 0.0) -> int:

@@ -10,6 +10,7 @@ from gymnasium import spaces
 from apathion.game.map import Map
 from apathion.game.tower import Tower, TowerType
 from apathion.game.enemy import Enemy, EnemyType
+from apathion.pathfinding.dqn_reward_profiles import get_reward_weights, RewardProfile
 
 
 class PathfindingEnv(gym.Env):
@@ -48,7 +49,7 @@ class PathfindingEnv(gym.Env):
         max_steps: int = 500,
         num_towers: int = 3,
         random_towers: bool = True,
-        state_size: int = 32,
+        state_size: int = 42,  # Increased to 42 for danger-aware features
         render_mode: Optional[str] = None,
         reward_profile: str = "survival",  # "speed", "balanced", or "survival"
     ):
@@ -105,34 +106,22 @@ class PathfindingEnv(gym.Env):
         # Initialize towers
         self._place_towers()
     
-    def _set_reward_weights(self, profile: str) -> None:
+    def _set_reward_weights(self, profile_name: str) -> None:
         """Set reward weights based on the profile."""
-        if profile == "speed":
-            self.goal_reward = 1000.0
-            self.health_bonus_multiplier = 20.0
-            self.death_penalty = 2.0
-            self.step_penalty = 0.001
-            self.damage_penalty_multiplier = 1.0  # Moderate damage penalty
-            self.progress_reward_multiplier = 0.1
-            self.spawn_distance_bonus_multiplier = 0.01
-        elif profile == "balanced":
-            self.goal_reward = 1000.0
-            self.health_bonus_multiplier = 200.0  # Increased from 100
-            self.death_penalty = 50.0  # Increased from 20
-            self.step_penalty = 0.0002  # Reduced from 0.0005 (care less about path length)
-            self.damage_penalty_multiplier = 15.0  # Increased from 5.0 (3x stronger!)
-            self.progress_reward_multiplier = 0.08
-            self.spawn_distance_bonus_multiplier = 0.008
-        elif profile == "survival":
-            self.goal_reward = 1000.0
-            self.health_bonus_multiplier = 500.0
-            self.death_penalty = 100.0
-            self.step_penalty = 0.0001
-            self.damage_penalty_multiplier = 10.0  # 10x from speed (not 50x - too much!)
-            self.progress_reward_multiplier = 0.05
-            self.spawn_distance_bonus_multiplier = 0.005
-        else:
-            raise ValueError(f"Unknown reward profile: {profile}. Use 'speed', 'balanced', or 'survival'")
+        try:
+            profile = RewardProfile(profile_name)
+            weights = get_reward_weights(profile)
+            
+            self.goal_reward = weights["goal_reward"]
+            self.health_bonus_multiplier = weights["health_bonus_multiplier"]
+            self.death_penalty = weights["death_penalty"]
+            self.step_penalty = weights["step_penalty"]
+            self.damage_penalty_multiplier = weights["damage_penalty_multiplier"]
+            self.progress_reward_multiplier = weights["progress_reward_multiplier"]
+            self.spawn_distance_bonus_multiplier = weights["spawn_distance_bonus_multiplier"]
+            
+        except ValueError:
+            raise ValueError(f"Unknown reward profile: {profile_name}. Use 'speed', 'balanced', or 'survival'")
     
     def _create_map(self, map_type: str) -> Map:
         """Create a map based on the map type."""
@@ -225,6 +214,12 @@ class PathfindingEnv(gym.Env):
         rel_y = (self.goal_position[1] - self.agent_position[1]) / self.game_map.height
         obs.extend([rel_x, rel_y])
         
+        # 1b. NEW: Normalized absolute position (2 features)
+        # Allows agent to know "where I am" to handle fixed obstacles (walls)
+        abs_x = self.agent_position[0] / self.game_map.width
+        abs_y = self.agent_position[1] / self.game_map.height
+        obs.extend([abs_x, abs_y])
+        
         # 2. Normalized distance to goal (1 feature)
         max_distance = np.sqrt(self.game_map.width ** 2 + self.game_map.height ** 2)
         distance = self._calculate_distance(self.agent_position, self.goal_position)
@@ -263,7 +258,24 @@ class PathfindingEnv(gym.Env):
                 # Padding for missing towers
                 obs.extend([0.0, 0.0, 0.0, 0.0])
         
-        # Total features: 2 + 1 + 1 + 8 + 20 = 32
+        # 6. Danger-aware directional features (8 features - danger level per direction)
+        # This helps agent understand which directions are safer
+        for dx, dy in self.ACTION_DIRECTIONS:
+            x, y = self.agent_position[0] + dx, self.agent_position[1] + dy
+            danger_level = 0.0
+            
+            if self.game_map.is_walkable(x, y):
+                # Calculate danger at this position
+                danger_level = self._get_damage_at_position((x, y))
+                # Normalize danger (typical max DPS ~50)
+                danger_level = min(1.0, danger_level / 50.0)
+            else:
+                # Obstacle = maximum danger
+                danger_level = 1.0
+            
+            obs.append(danger_level)
+        
+        # Total features: 2 + 2 + 1 + 1 + 8 + 20 + 8 = 42
         return np.array(obs, dtype=np.float32)
     
     def _calculate_reward(
@@ -312,13 +324,31 @@ class PathfindingEnv(gym.Env):
             damage_ratio = damage_taken / self.agent_max_health
             reward -= damage_ratio * self.damage_penalty_multiplier
         
-        # Progress reward (shaped reward)
-        if not invalid_move:
-            reward += distance_improved * self.progress_reward_multiplier
+        # Safe progress reward - reward progress that avoids danger
+        # This creates incentive to find safe efficient paths, not just short ones
+        if not invalid_move and distance_improved > 0:
+            # Calculate current danger level
+            current_danger = self._get_damage_at_position(self.agent_position)
             
+            # Safety factor: 1.0 = perfectly safe, 0.0 = maximum danger
+            # Typical max DPS is ~50 for multiple towers
+            safety_factor = max(0.0, 1.0 - (current_danger / 50.0))
+            
+            # Reward progress MORE if agent is in safer areas
+            # If safe (factor=1.0): full progress reward
+            # If dangerous (factor=0.0): minimal progress reward
+            safe_progress_multiplier = 0.5 + 0.5 * safety_factor  # Range: 0.5 to 1.0
+            
+            reward += distance_improved * self.progress_reward_multiplier * safe_progress_multiplier
+            
+        elif not invalid_move and distance_improved < 0:
             # Penalty for moving away from goal
-            if distance_improved < 0:
-                reward -= abs(distance_improved) * self.progress_reward_multiplier * 1.5
+            # BUT: Allow retreating if current position is dangerous
+            current_danger = self._get_damage_at_position(self.agent_position)
+            
+            # Reduce penalty if retreating from danger
+            retreat_penalty_multiplier = 0.2 if current_danger < 10.0 else 0.05
+            reward -= abs(distance_improved) * self.progress_reward_multiplier * retreat_penalty_multiplier
         
         # Spawn distance bonus (encourages leaving start area)
         distance_from_spawn = abs(self.agent_position[0] - self.spawn_position[0]) + \
@@ -326,6 +356,31 @@ class PathfindingEnv(gym.Env):
         
         if distance_from_spawn < 10:
             reward += distance_from_spawn * self.spawn_distance_bonus_multiplier
+        
+        # Tower proximity penalty (NEW: proactive avoidance, not just damage reaction)
+        # This gives IMMEDIATE negative feedback for being near towers, even before taking damage
+        if not reached_goal and not is_dead:
+            for tower in self.towers:
+                dist = self._calculate_distance(self.agent_position, tower.position)
+                # Penalty increases as agent gets closer to tower
+                if dist < tower.range:
+                    # Inside range: IMMENSE penalty to force avoidance
+                    # Non-linear scaling (squared) makes center terrifying
+                    proximity_ratio = 1.0 - (dist / tower.range)
+                    
+                    # Base penalty for just being in range (prevents "skimming")
+                    base_penalty = 5.0
+                    
+                    # Scaled penalty
+                    proximity_penalty = base_penalty + (proximity_ratio ** 2) * self.damage_penalty_multiplier
+                    reward -= proximity_penalty
+                    
+                # elif dist < tower.range * 1.5:
+                #     # Near tower: Stronger warning gradient
+                #     # Increase multiplier from 0.01 to 0.2 to make it "felt"
+                #     proximity_ratio = 1.0 - ((dist - tower.range) / (tower.range * 0.5))
+                #     proximity_penalty = proximity_ratio * 0.2 * self.damage_penalty_multiplier
+                #     reward -= proximity_penalty
         
         return reward
     

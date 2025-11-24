@@ -279,7 +279,9 @@ class ApathionCLI:
             from stable_baselines3 import DQN
             from stable_baselines3.common.callbacks import CheckpointCallback, CallbackList
             from stable_baselines3.common.vec_env import DummyVecEnv, SubprocVecEnv
+            from stable_baselines3.common.monitor import Monitor
             from apathion.pathfinding.dqn_env import PathfindingEnv
+            import torch.nn as nn
             import os
         except ImportError as e:
             print(f"Error: Required packages not installed: {e}")
@@ -294,21 +296,24 @@ class ApathionCLI:
         # Auto-adjust parameters for stability based on reward profile
         if reward_profile == "survival":
             if learning_rate == 0.0003:  # Using default
-                learning_rate = 0.00005  # Much lower for large rewards
-                print(f"  ⚙️  Auto-adjusted learning_rate for SURVIVAL profile: 0.0003 → 0.00005")
+                learning_rate = 0.0001  # Balanced for large rewards (increased from 0.00005)
+                print(f"  ⚙️  Auto-adjusted learning_rate for SURVIVAL profile: 0.0003 → 0.0001")
             if target_update_interval == 1000:  # Using default
                 target_update_interval = 5000  # Less frequent updates
                 print(f"  ⚙️  Auto-adjusted target_update_interval for SURVIVAL: 1000 → 5000")
             if exploration_fraction == 0.125:  # Using default
-                exploration_fraction = 0.2  # More exploration for survival
-                print(f"  ⚙️  Auto-adjusted exploration_fraction for SURVIVAL: 0.125 → 0.2")
+                exploration_fraction = 0.3  # Balanced exploration for survival (reduced from 0.8)
+                print(f"  ⚙️  Auto-adjusted exploration_fraction for SURVIVAL: 0.125 → 0.3")
         elif reward_profile == "balanced":
             if learning_rate == 0.0003:
-                learning_rate = 0.0001
-                print(f"  ⚙️  Auto-adjusted learning_rate for BALANCED profile: 0.0003 → 0.0001")
+                learning_rate = 0.00005  # Lower for large damage penalties
+                print(f"  ⚙️  Auto-adjusted learning_rate for BALANCED profile: 0.0003 → 0.00005")
             if target_update_interval == 1000:
-                target_update_interval = 2000
-                print(f"  ⚙️  Auto-adjusted target_update_interval for BALANCED: 1000 → 2000")
+                target_update_interval = 3000  # More stable with large rewards
+                print(f"  ⚙️  Auto-adjusted target_update_interval for BALANCED: 1000 → 3000")
+            if exploration_fraction == 0.125:
+                exploration_fraction = 0.15  # Slightly more exploration
+                print(f"  ⚙️  Auto-adjusted exploration_fraction for BALANCED: 0.125 → 0.15")
         
         print(f"\nConfiguration:")
         print(f"  Map type: {map_type}")
@@ -337,14 +342,16 @@ class ApathionCLI:
         def make_env(rank: int):
             """Create a single environment (for vectorization)."""
             def _init():
-                return PathfindingEnv(
+                env = PathfindingEnv(
                     map_type=map_type,
                     max_steps=500,
                     num_towers=num_towers,
                     random_towers=random_towers,
-                    state_size=32,
+                    state_size=42,  # Updated for danger-aware features
                     reward_profile=reward_profile,
                 )
+                # Wrap with Monitor to track episode rewards/lengths in logs
+                return Monitor(env)
             return _init
         
         if num_envs == 1:
@@ -354,7 +361,7 @@ class ApathionCLI:
                 max_steps=500,
                 num_towers=num_towers,
                 random_towers=random_towers,
-                state_size=32,
+                state_size=42,  # Updated for danger-aware features
                 reward_profile=reward_profile,
             )
         else:
@@ -395,18 +402,20 @@ class ApathionCLI:
         # Create DQN model with gradient clipping for stability
         print("Initializing DQN model...")
         
-        # Configure policy with larger network for better pattern learning
-        # Observation space is fixed at 32 features (encodes 5 nearest towers only),
-        # so network size is independent of actual tower count on map
-        network_arch = [256, 256, 128]  # Larger, deeper network for complex tower avoidance
+        # Configure improved policy with deeper network and better capacity
+        # Observation space is now 42 features (includes danger-aware directional info)
+        # Use deeper, wider network with skip-like structure for complex spatial reasoning
+        network_arch = [512, 256, 256, 128, 64]  # Deeper, wider network
         
         policy_kwargs = {
             "net_arch": network_arch,
+            "activation_fn": nn.ReLU,  # ReLU activation function
             "optimizer_kwargs": {
                 "eps": 1e-5,  # Adam epsilon for numerical stability
             }
         }
         print(f"  Network architecture: {network_arch}")
+        print(f"  State size: 42 features (with danger-aware directional info)")
         
         # Add gradient clipping for survival profile (large rewards)
         max_grad_norm = 10.0  # Default
@@ -505,7 +514,7 @@ class ApathionCLI:
             max_steps=500,
             num_towers=num_towers,
             random_towers=random_towers,
-            state_size=32,
+            state_size=34,
             reward_profile=reward_profile,
         )
         
@@ -948,9 +957,9 @@ class ApathionCLI:
                     use_cache=cfg.use_cache,
                     cache_duration=cfg.cache_duration,
                     model_path=cfg.model_path,
-                    plan_full_path=cfg.plan_full_path if hasattr(cfg, 'plan_full_path') else True,
+                    plan_full_path=cfg.plan_full_path if hasattr(cfg, 'plan_full_path') else False,  # Changed: default to False to match training
                 )
-            return DQNPathfinder()
+            return DQNPathfinder(plan_full_path=False)  # Changed: single-step mode like training
         
         elif algorithm == "fixed":
             # Extract baseline path from game config
