@@ -52,7 +52,7 @@ class ExperimentRunner:
     adaptation speed, and computational cost metrics.
     """
     
-    def __init__(self, output_dir: str = "data/results"):
+    def __init__(self, output_dir: str = "results"):
         """
         Initialize experiment runner.
         
@@ -910,8 +910,8 @@ def main():
     parser.add_argument(
         "--output",
         type=str,
-        default="data/results",
-        help="Output directory (default: data/results)"
+        default="results",
+        help="Output directory (default: results)"
     )
     
     args = parser.parse_args()
